@@ -324,34 +324,58 @@ public class Programs {
     return new SequenceProgram(ImmutableList.copyOf(programs));
   }
 
-  /** Program backed by a {@link RuleSet}. */
+  /** 基于 {@link RuleSet} 支持的程序。 */
   static class RuleSetProgram implements Program {
     final RuleSet ruleSet;
 
+    // 构造方法，初始化 RuleSetProgram 对象
     private RuleSetProgram(RuleSet ruleSet) {
       this.ruleSet = ruleSet;
     }
 
-    @Override public RelNode run(RelOptPlanner planner, RelNode rel,
+    /**
+     * 执行优化程序。
+     *
+     * @param planner 关系优化规划器
+     * @param rel 关系节点
+     * @param requiredOutputTraits 所需的输出关系特征集合
+     * @param materializations 关系优化物化视图列表
+     * @param lattices 关系优化晶格列表
+     * @return 优化后的关系节点（“Lattice” 在数据库和数据仓库领域中，通常指的是一种多维结构）
+     */
+    @Override
+    public RelNode run(RelOptPlanner planner, RelNode rel,
         RelTraitSet requiredOutputTraits,
         List<RelOptMaterialization> materializations,
         List<RelOptLattice> lattices) {
+      // 清空规划器中的现有状态
       planner.clear();
+
+      // 注册优化规则
       for (RelOptRule rule : ruleSet) {
         planner.addRule(rule);
       }
+
+      // 添加物化信息
       for (RelOptMaterialization materialization : materializations) {
         planner.addMaterialization(materialization);
       }
+
+      // 添加 Lattice 信息
       for (RelOptLattice lattice : lattices) {
         planner.addLattice(lattice);
       }
+
+      // 设置目标 RelTrait
       if (!rel.getTraitSet().equals(requiredOutputTraits)) {
         rel = planner.changeTraits(rel, requiredOutputTraits);
       }
-      planner.setRoot(rel);
-      return planner.findBestExp();
 
+      // 设置根节点
+      planner.setRoot(rel);
+
+      // 寻找最佳执行计划并返回
+      return planner.findBestExp();
     }
   }
 

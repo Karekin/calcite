@@ -106,6 +106,11 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
    * 操作数是规则调用的“入口点”。
    * 当注册的 RelNode 匹配某个操作数时，就会触发规则调用。
    * 此映射允许根据 RelNode 的类型快速定位相关的操作数。
+   *
+   * 用于保存VolcanoPlanner中所有的RelNode到对应的规则Pattern的映射
+   * 在两种情况下会向其中添加新的映射:
+   * 一是在addRule()方法中
+   * 二是在registerClass()如果注册了一个新的类型会调用onNewClass(), 添加新的映射
    */
   private final Multimap<Class<? extends RelNode>, RelOptRuleOperand>
       classOperands = LinkedListMultimap.create();
@@ -526,32 +531,37 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
    */
   @Override
   public boolean addRule(RelOptRule rule) {
-    // 如果规划器已锁定，不允许添加新规则。
+    // 如果规划器已经锁定，则不能添加规则，直接返回 false
     if (locked) {
       return false;
     }
 
-    // 调用父类方法尝试添加规则。
+    // 调用父类的 addRule() 方法，判断当前规则是否已经注册
+    // 如果未注册，则将其加入到 mapDescToRule 中
     if (!super.addRule(rule)) {
       return false;
     }
 
-    // 检查规则是否是转换规则（TransformationRule）。
-    final boolean isTransFormRule = rule instanceof TransformationRule;
-    // 遍历规则的所有操作数，将它们与可能匹配的子类关联。
+    // 每个规则的操作数都是规则调用的 "入口点"
+    // 将每个操作数与所有可能匹配的具体子类进行注册
     for (RelOptRuleOperand operand : rule.getOperands()) {
       for (Class<? extends RelNode> subClass : subClasses(operand.getMatchedClass())) {
-        // 如果是转换规则且子类是物理节点，跳过。
-        if (isTransFormRule && PhysicalNode.class.isAssignableFrom(subClass)) {
+        // 如果子类是 PhysicalNode 的子类，并且规则是 TransformationRule 类型，
+        // 则跳过此循环，不将该操作数与该子类进行关联
+        // 原因是 VolcanoPlanner 中的 TransformationRule 不支持匹配 PhysicalNode
+        if (PhysicalNode.class.isAssignableFrom(subClass) && rule instanceof TransformationRule) {
           continue;
         }
+        // 将操作数与对应的子类进行关联
         classOperands.put(subClass, operand);
       }
     }
 
-    // 如果规则是转换规则（ConverterRule），注册到相关的特性定义中。
+    // 如果这是一个转换规则，检查它是否作用于我们感兴趣的某种特征
+    // 如果是，则将规则与该特征进行注册
     if (rule instanceof ConverterRule) {
       ConverterRule converterRule = (ConverterRule) rule;
+
       final RelTrait ruleTrait = converterRule.getInTrait();
       final RelTraitDef ruleTraitDef = ruleTrait.getTraitDef();
       if (traitDefs.contains(ruleTraitDef)) {
@@ -559,6 +569,7 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
       }
     }
 
+    // 成功添加规则，返回 true
     return true;
   }
 

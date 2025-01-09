@@ -69,6 +69,9 @@ public abstract class AbstractRelOptPlanner implements RelOptPlanner {
   /**
    * 将规则描述映射到规则实例，确保规则描述唯一性。
    * 使用 LinkedHashMap 保持规则插入顺序。
+   *
+   * 用于保存VolcanoPlanner中已经注册的所有RelOptRule
+   * 仅在addRule()方法中会添加新的映射
    */
   protected final Map<String, RelOptRule> mapDescToRule = new LinkedHashMap<>();
 
@@ -103,6 +106,11 @@ public abstract class AbstractRelOptPlanner implements RelOptPlanner {
   /**
    * 已注册的关系表达式类的集合。
    * 用于跟踪优化器中使用的所有关系表达式类型。
+   *
+   * 用于保存VolcanoPlanner待优化的RelNode树中所有的RelNode类型(包括RelNode和RelSubset)
+   * 在两种情况下会向其中添加新的元素:
+   * 一种是在初始化时, 在AbstractRelOptPlanner的构造函数中添加RelNode和RelSubset
+   * 另一种是在调用changeTraits()或setRoot()时触发registerImpl(), 会调用registerClass()向其中添加每个RelNode的Class类型
    */
   private final Set<Class<? extends RelNode>> classes = new HashSet<>();
 
