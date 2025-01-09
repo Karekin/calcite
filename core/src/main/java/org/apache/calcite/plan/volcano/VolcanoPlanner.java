@@ -91,277 +91,349 @@ import static org.apache.calcite.linq4j.Nullness.castNonNull;
 import static java.util.Objects.requireNonNull;
 
 /**
- * VolcanoPlanner optimizes queries by transforming expressions selectively
- * according to a dynamic programming algorithm.
+ * VolcanoPlanner 是一个基于动态规划算法的查询优化器，
+ * 它通过选择性地转换表达式来优化查询计划。
  */
 public class VolcanoPlanner extends AbstractRelOptPlanner {
 
-  //~ Instance fields --------------------------------------------------------
+  //~ 实例字段 --------------------------------------------------------
 
   protected @MonotonicNonNull RelSubset root;
+  // 表示优化器的根节点，即查询的逻辑表达式的入口点。
 
   /**
-   * Operands that apply to a given class of {@link RelNode}.
-   *
-   * <p>Any operand can be an 'entry point' to a rule call, when a RelNode is
-   * registered which matches the operand. This map allows us to narrow down
-   * operands based on the class of the RelNode.
+   * 存储适用于特定类型的 RelNode 的操作数（Operand）。
+   * 操作数是规则调用的“入口点”。
+   * 当注册的 RelNode 匹配某个操作数时，就会触发规则调用。
+   * 此映射允许根据 RelNode 的类型快速定位相关的操作数。
    */
   private final Multimap<Class<? extends RelNode>, RelOptRuleOperand>
       classOperands = LinkedListMultimap.create();
 
   /**
-   * List of all sets. Used only for debugging.
+   * 所有 RelSet 的列表，仅用于调试目的。
+   * RelSet 表示逻辑上等价的一组查询计划。
    */
   final List<RelSet> allSets = new ArrayList<>();
 
   /**
-   * Canonical map from {@link String digest} to the unique
-   * {@link RelNode relational expression} with that digest.
+   * 存储每个已注册的 RelNode（关系表达式）的唯一标识（digest）到对应 RelNode 的映射。
+   * digest 是表达式的规范化字符串表示，用于快速比较和查找等价表达式。
    */
-  private final Map<RelDigest, RelNode> mapDigestToRel =
-      new HashMap<>();
+  private final Map<RelDigest, RelNode> mapDigestToRel = new HashMap<>();
 
   /**
-   * Map each registered expression ({@link RelNode}) to its equivalence set
-   * ({@link RelSubset}).
-   *
-   * <p>We use an {@link IdentityHashMap} to simplify the process of merging
-   * {@link RelSet} objects. Most {@link RelNode} objects are identified by
-   * their digest, which involves the set that their child relational
-   * expressions belong to. If those children belong to the same set, we have
-   * to be careful, otherwise it gets incestuous.
+   * 将每个已注册的 RelNode 映射到其对应的等价类（RelSubset）。
+   * 使用 IdentityHashMap 确保唯一性，简化 RelSet 合并操作。
    */
   private final IdentityHashMap<RelNode, RelSubset> mapRel2Subset =
       new IdentityHashMap<>();
 
   /**
-   * The nodes to be pruned.
-   *
-   * <p>If a RelNode is pruned, all {@link RelOptRuleCall}s using it
-   * are ignored, and future RelOptRuleCalls are not queued up.
+   * 存储需要被剪枝的节点集合。
+   * 如果一个 RelNode 被剪枝，那么所有与之相关的规则调用都会被忽略，
+   * 并且未来也不会再对其进行新的规则调用。
    */
   final Set<RelNode> prunedNodes = new HashSet<>();
 
   /**
-   * List of all schemas which have been registered.
+   * 存储所有已注册的 Schema（模式）。
    */
   private final Set<RelOptSchema> registeredSchemas = new HashSet<>();
 
   /**
-   * A driver to manage rule and rule matches.
+   * 用于管理规则和规则匹配的驱动器。
    */
   RuleDriver ruleDriver;
 
   /**
-   * Holds the currently registered RelTraitDefs.
+   * 保存当前已注册的 RelTraitDef（属性定义）。
+   * RelTraitDef 定义了 RelNode 的物理属性，例如排序或分布。
    */
   private final List<RelTraitDef> traitDefs = new ArrayList<>();
 
-  private int nextSetId = 0;
+  private int nextSetId = 0; // 用于生成新的 RelSet 的唯一 ID。
 
   private @MonotonicNonNull RelNode originalRoot;
+  // 初始查询计划的根节点。
 
   private @Nullable Convention rootConvention;
+  // 根节点的调用约定（Convention），用于标识物理计划的类型。
 
   /**
-   * Whether the planner can accept new rules.
+   * 标志优化器是否锁定。
+   * 如果锁定，优化器不会接受新的规则。
    */
   private boolean locked;
 
   /**
-   * Whether rels with Convention.NONE has infinite cost.
+   * 是否将具有 Convention.NONE 的节点视为具有无限成本。
    */
   private boolean noneConventionHasInfiniteCost = true;
 
-  private final List<RelOptMaterialization> materializations =
-      new ArrayList<>();
+  private final List<RelOptMaterialization> materializations = new ArrayList<>();
+  // 存储已注册的物化视图信息。
 
   /**
-   * Map of lattices by the qualified name of their star table.
+   * 存储每个星型表（star table）对应的 Lattice（晶格）对象。
    */
-  private final Map<List<String>, RelOptLattice> latticeByName =
-      new LinkedHashMap<>();
+  private final Map<List<String>, RelOptLattice> latticeByName = new LinkedHashMap<>();
 
   final Map<RelNode, Provenance> provenanceMap;
+  // 记录每个 RelNode 的来源信息。
 
   final Deque<VolcanoRuleCall> ruleCallStack = new ArrayDeque<>();
+  // 规则调用栈，用于存储当前的规则调用上下文。
 
-  /** Zero cost, according to {@link #costFactory}. Not necessarily a
-   * {@link org.apache.calcite.plan.volcano.VolcanoCost}. */
+  /**
+   * 零成本，根据 costFactory 的定义。
+   * 不一定是 VolcanoCost 的实例。
+   */
   final RelOptCost zeroCost;
 
-  /** Infinite cost, according to {@link #costFactory}. Not necessarily a
-   * {@link org.apache.calcite.plan.volcano.VolcanoCost}. */
+  /**
+   * 无限成本，根据 costFactory 的定义。
+   * 不一定是 VolcanoCost 的实例。
+   */
   final RelOptCost infCost;
 
   /**
-   * Whether to enable top-down optimization or not.
+   * 是否启用自顶向下优化。
    */
   boolean topDownOpt = CalciteSystemProperty.TOPDOWN_OPT.value();
 
   /**
-   * Extra roots for explorations.
+   * 用于探索的额外根节点集合。
    */
   final Set<RelSubset> explorationRoots = new HashSet<>();
 
+
   //~ Constructors -----------------------------------------------------------
 
+  //~ 构造函数 -----------------------------------------------------------
+
   /**
-   * Creates a uninitialized <code>VolcanoPlanner</code>. To fully initialize
-   * it, the caller must register the desired set of relations, rules, and
-   * calling conventions.
+   * 创建一个未初始化的 VolcanoPlanner。
+   * 调用者需要显式注册所需的关系表达式、规则和调用约定，才能完全初始化。
    */
   public VolcanoPlanner() {
-    this(null, null);
+    this(null, null); // 调用另一个构造函数并传入默认参数。
   }
 
   /**
-   * Creates a uninitialized <code>VolcanoPlanner</code>. To fully initialize
-   * it, the caller must register the desired set of relations, rules, and
-   * calling conventions.
+   * 创建一个未初始化的 VolcanoPlanner，允许传入上下文。
+   * 调用者需要显式注册所需的关系表达式、规则和调用约定，才能完全初始化。
+   *
+   * @param externalContext 外部上下文，用于提供配置或依赖。
    */
   public VolcanoPlanner(Context externalContext) {
-    this(null, externalContext);
+    this(null, externalContext); // 调用另一个构造函数并传入默认参数。
   }
 
   /**
-   * Creates a {@code VolcanoPlanner} with a given cost factory.
+   * 创建一个 VolcanoPlanner，允许传入自定义的成本工厂。
+   * 如果未提供成本工厂，则使用默认的 VolcanoCost.FACTORY。
+   *
+   * @param costFactory 成本工厂，用于定义查询计划的成本模型。
+   * @param externalContext 外部上下文，用于提供配置或依赖。
    */
   @SuppressWarnings("method.invocation.invalid")
   public VolcanoPlanner(@Nullable RelOptCostFactory costFactory,
       @Nullable Context externalContext) {
-    super(costFactory == null ? VolcanoCost.FACTORY : costFactory,
-        externalContext);
+    super(costFactory == null ? VolcanoCost.FACTORY : costFactory, externalContext);
+    // 初始化零成本和无限成本，基于成本工厂的定义。
     this.zeroCost = this.costFactory.makeZeroCost();
     this.infCost = this.costFactory.makeInfiniteCost();
-    // If LOGGER is debug enabled, enable provenance information to be captured
-    this.provenanceMap =
-        LOGGER.isDebugEnabled() ? new HashMap<>()
-            : Util.blackholeMap();
+
+    // 如果日志记录器启用了调试模式，则启用来源信息的记录功能。
+    this.provenanceMap = LOGGER.isDebugEnabled() ? new HashMap<>() : Util.blackholeMap();
+
+    // 初始化规则队列，根据是否启用自顶向下优化选择合适的规则驱动器。
     initRuleQueue();
   }
 
+  /**
+   * 初始化规则队列。
+   * 根据是否启用自顶向下优化选择规则驱动器。
+   */
   @EnsuresNonNull("ruleDriver")
   private void initRuleQueue() {
     if (topDownOpt) {
+      // 如果启用了自顶向下优化，使用 TopDownRuleDriver。
       ruleDriver = new TopDownRuleDriver(this);
     } else {
+      // 否则，使用基于迭代的 IterativeRuleDriver。
       ruleDriver = new IterativeRuleDriver(this);
     }
   }
 
+
   //~ Methods ----------------------------------------------------------------
 
   /**
-   * Enable or disable top-down optimization.
+   * 启用或禁用自顶向下优化。
    *
-   * <p>Note: Enabling top-down optimization will automatically enable
-   * top-down trait propagation.
+   * <p>注意：启用自顶向下优化会自动启用自顶向下的属性传播机制。
+   *
+   * @param value 如果为 true，则启用自顶向下优化；否则禁用。
    */
   public void setTopDownOpt(boolean value) {
     if (topDownOpt == value) {
-      return;
+      return; // 如果当前设置与目标相同，则无需更新。
     }
     topDownOpt = value;
-    initRuleQueue();
+    initRuleQueue(); // 根据新设置重新初始化规则队列。
   }
+
 
   // implement RelOptPlanner
   @Override public boolean isRegistered(RelNode rel) {
     return mapRel2Subset.get(rel) != null;
   }
 
-  @Override public void setRoot(RelNode rel) {
+  /**
+   * 设置优化器的根节点。
+   *
+   * <p>根节点是查询计划的起点，表示最终需要优化的目标查询逻辑表达式。
+   *
+   * @param rel 查询逻辑表达式的根节点。
+   */
+  @Override
+  public void setRoot(RelNode rel) {
+    // 将根节点注册到优化器中，并确保它属于某个 RelSet。
     this.root = registerImpl(rel, null);
+
+    // 如果 originalRoot 还未设置，将当前节点设置为初始根节点。
     if (this.originalRoot == null) {
       this.originalRoot = rel;
     }
 
+    // 记录根节点的调用约定（Convention），用于后续物理计划生成。
     rootConvention = this.root.getConvention();
+
+    // 确保根节点中存在所有必需的转换器，以支持不同的物理属性。
     ensureRootConverters();
   }
 
+  /**
+   * 获取优化器的根节点。
+   *
+   * @return 根节点，如果尚未设置根节点，则返回 null。
+   */
   @Pure
-  @Override public @Nullable RelNode getRoot() {
+  @Override
+  public @Nullable RelNode getRoot() {
     return root;
   }
 
-  @Override public List<RelOptMaterialization> getMaterializations() {
-    return ImmutableList.copyOf(materializations);
+
+  /**
+   * 获取所有注册的物化视图。
+   *
+   * @return 不可变的物化视图列表。
+   */
+  @Override
+  public List<RelOptMaterialization> getMaterializations() {
+    return ImmutableList.copyOf(materializations); // 返回不可变列表，防止外部修改。
   }
 
-  @Override public void addMaterialization(
-      RelOptMaterialization materialization) {
-    materializations.add(materialization);
+  /**
+   * 添加一个物化视图。
+   *
+   * @param materialization 物化视图的定义。
+   */
+  @Override
+  public void addMaterialization(RelOptMaterialization materialization) {
+    materializations.add(materialization); // 将物化视图添加到列表中。
   }
 
-  @Override public void addLattice(RelOptLattice lattice) {
+  /**
+   * 添加一个晶格（Lattice）。
+   *
+   * @param lattice 晶格对象，表示查询计划中的星型表优化信息。
+   */
+  @Override
+  public void addLattice(RelOptLattice lattice) {
     latticeByName.put(lattice.starRelOptTable.getQualifiedName(), lattice);
+    // 将晶格与其对应的星型表名称绑定。
   }
 
-  @Override public @Nullable RelOptLattice getLattice(RelOptTable table) {
-    return latticeByName.get(table.getQualifiedName());
+  /**
+   * 获取指定表的晶格信息。
+   *
+   * @param table 查询计划中的表。
+   * @return 对应的晶格对象，如果没有，则返回 null。
+   */
+  @Override
+  public @Nullable RelOptLattice getLattice(RelOptTable table) {
+    return latticeByName.get(table.getQualifiedName()); // 根据表名查找对应的晶格。
   }
 
+
+  /**
+   * 注册所有与查询相关的物化视图。
+   *
+   * <p>此方法会：
+   * <ul>
+   *   <li>尝试使用物化视图优化查询计划。</li>
+   *   <li>为未匹配的物化视图注册其表表达式，以供后续优化使用。</li>
+   *   <li>探索与晶格（Lattice）相关的优化机会。</li>
+   * </ul>
+   */
   protected void registerMaterializations() {
-    // Avoid using materializations while populating materializations!
-    final CalciteConnectionConfig config =
-        context.unwrap(CalciteConnectionConfig.class);
+    // 获取配置，检查是否启用物化视图。
+    final CalciteConnectionConfig config = context.unwrap(CalciteConnectionConfig.class);
     if (config == null || !config.materializationsEnabled()) {
-      return;
+      return; // 如果未启用物化视图，则直接返回。
     }
 
     requireNonNull(root, "root");
     requireNonNull(originalRoot, "originalRoot");
 
-    // Register rels using materialized views.
+    // 使用物化视图优化查询计划。
     final List<Pair<RelNode, List<RelOptMaterialization>>> materializationUses =
         RelOptMaterializations.useMaterializedViews(originalRoot, materializations);
     for (Pair<RelNode, List<RelOptMaterialization>> use : materializationUses) {
-      RelNode rel = use.left;
-      Hook.SUB.run(rel);
-      registerImpl(rel, root.set);
+      RelNode rel = use.left; // 替换后的查询计划。
+      Hook.SUB.run(rel); // 钩子，提供自定义扩展点。
+      registerImpl(rel, root.set); // 将替换后的计划注册到根节点的 RelSet 中。
     }
 
-    // Register table rels of materialized views that cannot find a substitution
-    // in root rel transformation but can potentially be useful.
+    // 注册未使用的物化视图的表表达式。
     final Set<RelOptMaterialization> applicableMaterializations =
         new HashSet<>(
             RelOptMaterializations.getApplicableMaterializations(
                 originalRoot, materializations));
     for (Pair<RelNode, List<RelOptMaterialization>> use : materializationUses) {
-      applicableMaterializations.removeAll(use.right);
+      applicableMaterializations.removeAll(use.right); // 移除已匹配的物化视图。
     }
     for (RelOptMaterialization materialization : applicableMaterializations) {
       RelSubset subset = registerImpl(materialization.queryRel, null);
-      explorationRoots.add(subset);
+      explorationRoots.add(subset); // 将未匹配的物化视图添加到探索根节点。
       RelNode tableRel2 =
           RelOptUtil.createCastRel(
               materialization.tableRel,
               materialization.queryRel.getRowType(),
-              true);
+              true); // 创建类型兼容的表表达式。
       registerImpl(tableRel2, subset.set);
     }
 
-    // Register rels using lattices.
+    // 使用晶格优化查询计划。
     final List<Pair<RelNode, RelOptLattice>> latticeUses =
         RelOptMaterializations.useLattices(
             originalRoot, ImmutableList.copyOf(latticeByName.values()));
     if (!latticeUses.isEmpty()) {
-      RelNode rel = latticeUses.get(0).left;
+      RelNode rel = latticeUses.get(0).left; // 使用晶格优化后的查询计划。
       Hook.SUB.run(rel);
-      registerImpl(rel, root.set);
+      registerImpl(rel, root.set); // 注册优化后的查询计划。
     }
   }
 
   /**
-   * Finds an expression's equivalence set. If the expression is not
-   * registered, returns null.
+   * 获取一个表达式所属的等价类（RelSet）。
    *
-   * @param rel Relational expression
-   * @return Equivalence set that expression belongs to, or null if it is not
-   * registered
+   * @param rel 要查询的表达式。
+   * @return 表达式所属的等价类，如果未注册，则返回 null。
    */
   public @Nullable RelSet getSet(RelNode rel) {
     requireNonNull(rel, "rel");
@@ -369,38 +441,72 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
     if (subset != null) {
       return requireNonNull(subset.set, "subset.set");
     }
-    return null;
+    return null; // 如果表达式未注册，返回 null。
   }
 
-  @Override public boolean addRelTraitDef(RelTraitDef relTraitDef) {
+  /**
+   * 向优化器中添加一个关系特性定义（RelTraitDef）。
+   *
+   * @param relTraitDef 要添加的关系特性定义。
+   * @return 如果特性定义成功添加（即之前未包含），返回 true；否则返回 false。
+   */
+  @Override
+  public boolean addRelTraitDef(RelTraitDef relTraitDef) {
+    // 检查是否已经包含该特性定义，如果没有，则添加并返回 true。
     return !traitDefs.contains(relTraitDef) && traitDefs.add(relTraitDef);
   }
 
-  @Override public void clearRelTraitDefs() {
+  /**
+   * 清除所有关系特性定义。
+   */
+  @Override
+  public void clearRelTraitDefs() {
+    // 清空 traitDefs 列表。
     traitDefs.clear();
   }
 
-  @Override public List<RelTraitDef> getRelTraitDefs() {
+  /**
+   * 获取当前所有注册的关系特性定义。
+   *
+   * @return 当前的特性定义列表。
+   */
+  @Override
+  public List<RelTraitDef> getRelTraitDefs() {
+    // 返回 traitDefs 列表。
     return traitDefs;
   }
 
-  @Override public RelTraitSet emptyTraitSet() {
+  /**
+   * 创建一个空的关系特性集（RelTraitSet），并为每个特性定义添加默认值。
+   *
+   * @return 包含默认值的关系特性集。
+   */
+  @Override
+  public RelTraitSet emptyTraitSet() {
+    // 调用父类方法创建一个空的关系特性集。
     RelTraitSet traitSet = super.emptyTraitSet();
+    // 遍历所有特性定义，为每个特性添加默认值。
     for (RelTraitDef traitDef : traitDefs) {
       if (traitDef.multiple()) {
-        // TODO: restructure RelTraitSet to allow a list of entries
-        //  for any given trait
+        // TODO: 需要调整 RelTraitSet 的结构以支持同一特性定义的多个条目。
       }
       traitSet = traitSet.plus(traitDef.getDefault());
     }
     return traitSet;
   }
 
-  @Override public void clear() {
+  /**
+   * 清除规划器的内部状态，包括规则、特性定义、节点等。
+   */
+  @Override
+  public void clear() {
+    // 调用父类方法清除基础状态。
     super.clear();
+    // 删除所有规则。
     for (RelOptRule rule : getRules()) {
       removeRule(rule);
     }
+    // 清空内部数据结构。
     this.classOperands.clear();
     this.allSets.clear();
     this.mapDigestToRel.clear();
@@ -412,22 +518,30 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
     this.provenanceMap.clear();
   }
 
-  @Override public boolean addRule(RelOptRule rule) {
+  /**
+   * 向优化器中添加一个规则。
+   *
+   * @param rule 要添加的优化规则。
+   * @return 如果规则成功添加，返回 true；否则返回 false。
+   */
+  @Override
+  public boolean addRule(RelOptRule rule) {
+    // 如果规划器已锁定，不允许添加新规则。
     if (locked) {
       return false;
     }
 
+    // 调用父类方法尝试添加规则。
     if (!super.addRule(rule)) {
       return false;
     }
 
+    // 检查规则是否是转换规则（TransformationRule）。
     final boolean isTransFormRule = rule instanceof TransformationRule;
-    // Each of this rule's operands is an 'entry point' for a rule call.
-    // Register each operand against all concrete sub-classes that could match
-    // it.
+    // 遍历规则的所有操作数，将它们与可能匹配的子类关联。
     for (RelOptRuleOperand operand : rule.getOperands()) {
-      for (Class<? extends RelNode> subClass
-          : subClasses(operand.getMatchedClass())) {
+      for (Class<? extends RelNode> subClass : subClasses(operand.getMatchedClass())) {
+        // 如果是转换规则且子类是物理节点，跳过。
         if (isTransFormRule && PhysicalNode.class.isAssignableFrom(subClass)) {
           continue;
         }
@@ -435,12 +549,9 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
       }
     }
 
-    // If this is a converter rule, check that it operates on one of the
-    // kinds of trait we are interested in, and if so, register the rule
-    // with the trait.
+    // 如果规则是转换规则（ConverterRule），注册到相关的特性定义中。
     if (rule instanceof ConverterRule) {
       ConverterRule converterRule = (ConverterRule) rule;
-
       final RelTrait ruleTrait = converterRule.getInTrait();
       final RelTraitDef ruleTraitDef = ruleTrait.getTraitDef();
       if (traitDefs.contains(ruleTraitDef)) {
@@ -451,18 +562,24 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
     return true;
   }
 
-  @Override public boolean removeRule(RelOptRule rule) {
-    // Remove description.
+  /**
+   * 从优化器中移除一个规则。
+   *
+   * @param rule 要移除的优化规则。
+   * @return 如果规则成功移除，返回 true；否则返回 false。
+   */
+  @Override
+  public boolean removeRule(RelOptRule rule) {
+    // 调用父类方法尝试移除规则。
     if (!super.removeRule(rule)) {
-      // Rule was not present.
+      // 如果规则不存在，返回 false。
       return false;
     }
 
-    // Remove operands.
+    // 移除规则的所有操作数。
     classOperands.values().removeIf(entry -> entry.getRule().equals(rule));
 
-    // Remove trait mappings. (In particular, entries from conversion
-    // graph.)
+    // 如果规则是转换规则，移除与特性定义的映射。
     if (rule instanceof ConverterRule) {
       ConverterRule converterRule = (ConverterRule) rule;
       final RelTrait ruleTrait = converterRule.getInTrait();
@@ -474,13 +591,21 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
     return true;
   }
 
-  @Override protected void onNewClass(RelNode node) {
+  /**
+   * 处理新类型的关系节点（RelNode），为其创建匹配映射。
+   *
+   * @param node 新的关系节点。
+   */
+  @Override
+  protected void onNewClass(RelNode node) {
+    // 调用父类方法。
     super.onNewClass(node);
 
+    // 判断节点是否是物理节点。
     final boolean isPhysical = node instanceof PhysicalNode;
-    // Create mappings so that instances of this class will match existing
-    // operands.
+    // 获取节点的具体类。
     final Class<? extends RelNode> clazz = node.getClass();
+    // 遍历所有规则，尝试为当前节点匹配操作数。
     for (RelOptRule rule : mapDescToRule.values()) {
       if (isPhysical && rule instanceof TransformationRule) {
         continue;
@@ -493,22 +618,40 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
     }
   }
 
-  @Override public RelNode changeTraits(final RelNode rel, RelTraitSet toTraits) {
+  /**
+   * 修改关系节点的特性集（RelTraitSet）。
+   *
+   * @param rel 要修改的关系节点。
+   * @param toTraits 目标特性集。
+   * @return 修改后的关系节点。
+   */
+  @Override
+  public RelNode changeTraits(final RelNode rel, RelTraitSet toTraits) {
+    // 确保目标特性集与原始特性集不同。
     assert !rel.getTraitSet().equals(toTraits);
     assert toTraits.allSimple();
 
+    // 确保关系节点已注册。
     RelSubset rel2 = ensureRegistered(rel, null);
+    // 如果目标特性集已经存在，直接返回。
     if (rel2.getTraitSet().equals(toTraits)) {
       return rel2;
     }
 
-    return rel2.set.getOrCreateSubset(
-        rel.getCluster(), toTraits, true);
+    // 创建或获取目标特性集的子集。
+    return rel2.set.getOrCreateSubset(rel.getCluster(), toTraits, true);
   }
 
-  @Override public RelOptPlanner chooseDelegate() {
+  /**
+   * 选择规划器的委托实现（通常返回自身）。
+   *
+   * @return 当前的规划器实例。
+   */
+  @Override
+  public RelOptPlanner chooseDelegate() {
     return this;
   }
+
 
   /**
    * Finds the most efficient expression to implement the query given via
@@ -578,51 +721,80 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
     }
   }
 
-  @Override public RelSubset register(
-      RelNode rel,
-      @Nullable RelNode equivRel) {
+  /**
+   * 注册一个 {@link RelNode}，并将其与等价类相关联。
+   * 如果已存在等价的表达式，则不会重复注册。
+   *
+   * @param rel 要注册的关系表达式。
+   * @param equivRel 与之等价的表达式（如果已知），可以为空。
+   * @return 表达式所属的 {@link RelSubset}。
+   */
+  @Override
+  public RelSubset register(RelNode rel, @Nullable RelNode equivRel) {
+    // 确保 rel 不为空。
     assert !isRegistered(rel) : "pre: isRegistered(rel)";
+
+    // 找到与 equivRel 对应的 RelSet（如果提供了 equivRel）。
     final RelSet set;
     if (equivRel == null) {
-      set = null;
+      set = null; // 如果没有等价表达式，则当前表达式需要创建一个新 RelSet。
     } else {
+      // 验证 rel 和 equivRel 的行类型是否一致。
       final RelDataType relType = rel.getRowType();
       final RelDataType equivRelType = equivRel.getRowType();
-      if (!RelOptUtil.areRowTypesEqual(relType,
-          equivRelType, false)) {
+      if (!RelOptUtil.areRowTypesEqual(relType, equivRelType, false)) {
         throw new IllegalArgumentException(
-            RelOptUtil.getFullTypeDifferenceString("rel rowtype", relType,
-                "equiv rowtype", equivRelType));
+            RelOptUtil.getFullTypeDifferenceString(
+                "rel rowtype", relType, "equiv rowtype", equivRelType));
       }
+
+      // 确保等价表达式已注册。
       equivRel = ensureRegistered(equivRel, null);
+
+      // 获取等价表达式的 RelSet。
       set = getSet(equivRel);
     }
+
+    // 将表达式注册到指定的 RelSet 或创建新 RelSet。
     return registerImpl(rel, set);
   }
 
-  @Override public RelSubset ensureRegistered(RelNode rel, @Nullable RelNode equivRel) {
+  /**
+   * 确保一个表达式已被注册。
+   * 如果表达式尚未注册，会将其注册到等价类。
+   *
+   * @param rel 要注册的表达式。
+   * @param equivRel 等价表达式（可选）。
+   * @return 表达式所属的 {@link RelSubset}。
+   */
+  @Override
+  public RelSubset ensureRegistered(RelNode rel, @Nullable RelNode equivRel) {
     RelSubset result;
+
+    // 如果表达式已经被注册，返回其对应的子集。
     final RelSubset subset = getSubset(rel);
     if (subset != null) {
       if (equivRel != null) {
+        // 如果提供了等价表达式，合并其所属的 RelSet。
         final RelSubset equivSubset = getSubsetNonNull(equivRel);
         if (subset.set != equivSubset.set) {
-          merge(equivSubset.set, subset.set);
+          merge(equivSubset.set, subset.set); // 合并两个 RelSet。
         }
       }
       result = canonize(subset);
     } else {
+      // 如果尚未注册，则注册表达式。
       result = register(rel, equivRel);
     }
 
-    // Checking if tree is valid considerably slows down planning
-    // Only doing it if logger level is debug or finer
+    // 验证注册后的计划是否有效。
     if (LOGGER.isDebugEnabled()) {
       assert isValid(Litmus.THROW);
     }
 
     return result;
   }
+
 
   /**
    * Checks internal consistency.
@@ -747,26 +919,27 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
   }
 
   /**
-   * Returns the subset that a relational expression belongs to.
+   * 获取一个表达式所属的子集（RelSubset）。
    *
-   * @param rel Relational expression
-   * @return Subset it belongs to, or null if it is not registered
+   * @param rel 要查询的表达式。
+   * @return 表达式所属的子集，如果未注册，则返回 null。
    */
   public @Nullable RelSubset getSubset(RelNode rel) {
     requireNonNull(rel, "rel");
     if (rel instanceof RelSubset) {
-      return (RelSubset) rel;
+      return (RelSubset) rel; // 如果表达式本身就是一个子集，直接返回。
     } else {
-      return mapRel2Subset.get(rel);
+      return mapRel2Subset.get(rel); // 查找映射表中的子集。
     }
   }
 
   /**
-   * Returns the subset that a relational expression belongs to.
+   * 获取一个表达式所属的子集（RelSubset），
+   * 如果表达式未注册，则抛出异常。
    *
-   * @param rel Relational expression
-   * @return Subset it belongs to, or null if it is not registered
-   * @throws AssertionError in case subset is not found
+   * @param rel 要查询的表达式。
+   * @return 表达式所属的子集。
+   * @throws AssertionError 如果未找到子集。
    */
   @API(since = "1.26", status = API.Status.EXPERIMENTAL)
   public RelSubset getSubsetNonNull(RelNode rel) {
@@ -784,39 +957,52 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
     return set.getSubset(traits);
   }
 
-  @Nullable RelNode changeTraitsUsingConverters(
-      RelNode rel,
-      RelTraitSet toTraits) {
+  /**
+   * 使用转换器将给定的关系表达式（RelNode）的特性集（TraitSet）更改为目标特性集。
+   *
+   * @param rel       要转换的关系表达式
+   * @param toTraits  目标特性集
+   * @return 转换后的关系表达式，如果转换失败则返回 null
+   */
+  @Nullable
+  RelNode changeTraitsUsingConverters(RelNode rel, RelTraitSet toTraits) {
+    // 获取关系表达式的当前特性集
     final RelTraitSet fromTraits = rel.getTraitSet();
 
+    // 确保当前特性集的大小不小于目标特性集
     assert fromTraits.size() >= toTraits.size();
 
+    // 是否允许使用无限代价的转换器
     final boolean allowInfiniteCostConverters =
         CalciteSystemProperty.ALLOW_INFINITE_COST_CONVERTERS.value();
 
-    // Traits may build on top of another...for example a collation trait
-    // would typically come after a distribution trait since distribution
-    // destroys collation; so when doing the conversion below we use
-    // fromTraits as the trait of the just previously converted RelNode.
-    // Also, toTraits may have fewer traits than fromTraits, excess traits
-    // will be left as is.  Finally, any null entries in toTraits are
-    // ignored.
+    /**
+     * 遍历目标特性集，逐步将当前特性集转换为目标特性集。
+     * - 特性可能具有层级关系（例如分布特性可能影响排序特性）。
+     * - 目标特性集可能比当前特性集少，未指定的特性保持不变。
+     * - 如果目标特性集中包含 null 值，直接跳过该特性。
+     */
     RelNode converted = rel;
     for (int i = 0; (converted != null) && (i < toTraits.size()); i++) {
+      // 获取当前特性集和目标特性集中的特性
       RelTrait fromTrait = converted.getTraitSet().getTrait(i);
       final RelTraitDef traitDef = fromTrait.getTraitDef();
       RelTrait toTrait = toTraits.getTrait(i);
 
+      // 如果目标特性为 null，跳过当前特性
       if (toTrait == null) {
         continue;
       }
 
+      // 确保当前特性和目标特性具有相同的定义
       assert traitDef == toTrait.getTraitDef();
+
+      // 如果当前特性已经满足目标特性，跳过转换
       if (fromTrait.satisfies(toTrait)) {
-        // No need to convert; it's already correct.
         continue;
       }
 
+      // 使用特性定义的转换器将当前特性转换为目标特性
       RelNode convertedRel =
           traitDef.convert(
               this,
@@ -824,14 +1010,17 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
               toTrait,
               allowInfiniteCostConverters);
       if (convertedRel != null) {
+        // 确保转换后的特性满足目标特性
         assert castNonNull(convertedRel.getTraitSet().getTrait(traitDef)).satisfies(toTrait);
+        // 将转换后的表达式注册到规划器
         register(convertedRel, converted);
       }
 
+      // 更新已转换的表达式
       converted = convertedRel;
     }
 
-    // make sure final converted traitset subsumes what was required
+    // 确保最终转换后的特性集满足目标特性集
     if (converted != null) {
       assert converted.getTraitSet().satisfies(toTraits);
     }
@@ -839,42 +1028,52 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
     return converted;
   }
 
-  @Override public void prune(RelNode rel) {
+  /**
+   * 将指定的关系表达式标记为已修剪。
+   * @param rel 要修剪的关系表达式
+   */
+  @Override
+  public void prune(RelNode rel) {
     prunedNodes.add(rel);
   }
 
   /**
-   * Dumps the internal state of this VolcanoPlanner to a writer.
-   *
-   * @param pw Print writer
-   * @see #normalizePlan(String)
+   * 将规划器的内部状态输出到指定的打印流中。
+   * @param pw 打印流
    */
   public void dump(PrintWriter pw) {
     pw.println("Root: " + root);
     pw.println("Original rel:");
 
     if (originalRoot != null) {
+      // 输出根节点的详细信息
       originalRoot.explain(
           new RelWriterImpl(pw, SqlExplainLevel.ALL_ATTRIBUTES, false));
     }
 
     try {
+      // 如果启用了输出集合的配置，则打印所有集合信息
       if (CalciteSystemProperty.DUMP_SETS.value()) {
         pw.println();
         pw.println("Sets:");
         Dumpers.dumpSets(this, pw);
       }
+      // 如果启用了输出 Graphviz 的配置，则打印 Graphviz 格式的信息
       if (CalciteSystemProperty.DUMP_GRAPHVIZ.value()) {
         pw.println();
         pw.println("Graphviz:");
         Dumpers.dumpGraphviz(this, pw);
       }
     } catch (Exception | AssertionError e) {
-      pw.println("Error when dumping plan state: \n"
-          + e);
+      // 如果输出过程中发生异常，打印错误信息
+      pw.println("Error when dumping plan state: \n" + e);
     }
   }
 
+  /**
+   * 将规划器的状态以 Graphviz 格式输出为字符串。
+   * @return 以 Graphviz 格式表示的规划器状态
+   */
   public String toDot() {
     StringWriter sw = new StringWriter();
     PrintWriter pw = new PrintWriter(sw);
@@ -884,62 +1083,59 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
   }
 
   /**
-   * Re-computes the digest of a {@link RelNode}.
+   * 重新计算指定关系表达式的摘要（digest）。
    *
-   * <p>Since a relational expression's digest contains the identifiers of its
-   * children, this method needs to be called when the child has been renamed,
-   * for example if the child's set merges with another.
+   * <p>由于摘要包含子表达式的标识符，如果子表达式被重命名（例如子集被合并），
+   * 则需要重新计算摘要。
    *
-   * @param rel Relational expression
+   * @param rel 要重新计算摘要的关系表达式
    */
   void rename(RelNode rel) {
     String oldDigest = "";
     if (LOGGER.isTraceEnabled()) {
-      oldDigest = rel.getDigest();
+      oldDigest = rel.getDigest(); // 保存旧的摘要信息用于调试
     }
+
+    // 修复关系表达式的输入并重新计算摘要
     if (fixUpInputs(rel)) {
-      final RelDigest newDigest = rel.getRelDigest();
+      final RelDigest newDigest = rel.getRelDigest(); // 获取新的摘要
       LOGGER.trace("Rename #{} from '{}' to '{}'", rel.getId(), oldDigest, newDigest);
+
+      // 更新摘要到表达式的映射
       final RelNode equivRel = mapDigestToRel.put(newDigest, rel);
       if (equivRel != null) {
+        // 如果已存在具有相同摘要的等价表达式，则将其恢复
         assert equivRel != rel;
-
-        // There's already an equivalent with the same name, and we
-        // just knocked it out. Put it back, and forget about 'rel'.
         LOGGER.trace("After renaming rel#{} it is now equivalent to rel#{}",
             rel.getId(), equivRel.getId());
 
         mapDigestToRel.put(newDigest, equivRel);
-        checkPruned(equivRel, rel);
+        checkPruned(equivRel, rel); // 检查修剪状态
 
         RelSubset equivRelSubset = getSubsetNonNull(equivRel);
 
-        // Remove back-links from children.
+        // 移除子表达式的反向链接
         for (RelNode input : rel.getInputs()) {
           ((RelSubset) input).set.parents.remove(rel);
         }
 
-        // Remove rel from its subset. (This may leave the subset
-        // empty, but if so, that will be dealt with when the sets
-        // get merged.)
-        final RelSubset subset =
-            requireNonNull(mapRel2Subset.put(rel, equivRelSubset));
+        // 将表达式从当前子集中移除
+        final RelSubset subset = requireNonNull(mapRel2Subset.put(rel, equivRelSubset));
         boolean existed = subset.set.rels.remove(rel);
         checkArgument(existed, "rel was not known to its set");
+
         final RelSubset equivSubset = getSubsetNonNull(equivRel);
         for (RelSubset s : subset.set.subsets) {
           if (s.best == rel) {
             s.best = equivRel;
-            // Propagate cost improvement since this potentially would change the subset's best cost
+            // 如果最佳表达式发生变化，传播成本改进
             propagateCostImprovements(equivRel);
           }
         }
 
+        // 如果等价表达式属于不同的子集，合并两个集合
         if (equivSubset != subset) {
-          // The equivalent relational expression is in a different
-          // subset, therefore the sets are equivalent.
-          assert equivSubset.getTraitSet().equals(
-              subset.getTraitSet());
+          assert equivSubset.getTraitSet().equals(subset.getTraitSet());
           assert equivSubset.set != subset.set;
           merge(equivSubset.set, subset.set);
         }
@@ -947,15 +1143,21 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
     }
   }
 
+
   /**
-   * Checks whether a relexp has made any subset cheaper, and if it so,
-   * propagate new cost to parent rel nodes.
+   * 检查某个关系表达式是否降低了其所属子集的成本，
+   * 如果降低了，则将新的成本传播到其父关系表达式中。
    *
-   * @param rel       Relational expression whose cost has improved
+   * @param rel 成本降低的关系表达式
    */
   void propagateCostImprovements(RelNode rel) {
+    // 获取元数据查询接口，用于计算表达式的成本
     RelMetadataQuery mq = rel.getCluster().getMetadataQuery();
+
+    // 用于存储传播中的关系表达式及其成本的映射
     Map<RelNode, RelOptCost> propagateRels = new HashMap<>();
+
+    // 优先队列，用于按照成本顺序处理关系表达式
     PriorityQueue<RelNode> propagateHeap = new PriorityQueue<>((o1, o2) -> {
       RelOptCost c1 = propagateRels.get(o1);
       RelOptCost c2 = propagateRels.get(o2);
@@ -972,32 +1174,33 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
       }
       return 1;
     });
+
+    // 初始化优先队列，将传入的关系表达式及其成本放入
     propagateRels.put(rel, getCostOrInfinite(rel, mq));
     propagateHeap.offer(rel);
 
     RelNode relNode;
+    // 遍历优先队列，逐个处理关系表达式
     while ((relNode = propagateHeap.poll()) != null) {
+      // 获取当前节点的成本
       RelOptCost cost = requireNonNull(propagateRels.get(relNode), "propagateRels.get(relNode)");
 
+      // 遍历当前节点所属集合中的所有子集
       for (RelSubset subset : getSubsetNonNull(relNode).set.subsets) {
+        // 如果当前节点的特性不满足子集的特性要求，跳过
         if (!relNode.getTraitSet().satisfies(subset.getTraitSet())) {
           continue;
         }
 
-        // Update subset best and best's cost when we find a cheaper rel
+        // 如果当前节点不是子集的最佳表达式且成本没有降低，跳过
         if (relNode != subset.best && !cost.isLt(subset.bestCost)) {
           continue;
         }
 
-        // The cost of the RelNode is updated when a change is detected.
-
-        // The reason for this update is that when one of the subsets in RelSet finds a RelNode
-        // with a lower cost, it is necessary to update the parents of the subset to
-        // have the best RelNode and best cost.
-        // In theory, this cost should become smaller.
-        // However, according to the SQL added in the JdbcAdapterTest {@link testVolcanoPlannerInternalValid},
-        // it is observed that the cost of RelNode can sometimes increase.
-        // Therefore, an update is performed.
+        /**
+         * 更新子集的最佳成本和最佳表达式。
+         * 根据测试，有时成本可能会增加，因此需要执行更新。
+         */
         if (relNode == subset.best && cost.equals(subset.bestCost)) {
           continue;
         }
@@ -1008,9 +1211,11 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
 
         subset.bestCost = cost;
         subset.best = relNode;
-        // since best was changed, cached metadata for this subset should be removed
+
+        // 清除子集的元数据缓存
         mq.clearCache(subset);
 
+        // 将成本传播到子集的父节点
         for (RelNode parent : subset.getParents()) {
           mq.clearCache(parent);
           RelOptCost newCost = getCostOrInfinite(parent, mq);
@@ -1018,7 +1223,7 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
           if (existingCost == null || newCost.isLt(existingCost)) {
             propagateRels.put(parent, newCost);
             if (existingCost != null) {
-              // Cost reduced, force the heap to adjust its ordering
+              // 如果成本降低，强制调整队列顺序
               propagateHeap.remove(parent);
             }
             propagateHeap.offer(parent);
@@ -1029,36 +1234,35 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
   }
 
   /**
-   * Registers a {@link RelNode}, which has already been registered, in a new
-   * {@link RelSet}.
+   * 重新注册已注册的 {@link RelNode} 到新的 {@link RelSet} 中。
    *
-   * @param set Set
-   * @param rel Relational expression
+   * @param set 新的关系集合
+   * @param rel 要重新注册的关系表达式
    */
-  void reregister(
-      RelSet set,
-      RelNode rel) {
-    // Is there an equivalent relational expression? (This might have
-    // just occurred because the relational expression's child was just
-    // found to be equivalent to another set.)
+  void reregister(RelSet set, RelNode rel) {
+    // 检查是否存在等价的关系表达式
     RelNode equivRel = mapDigestToRel.get(rel.getRelDigest());
     if (equivRel != null && equivRel != rel) {
+      // 确保等价表达式的类型和特性集与当前表达式一致
       assert equivRel.getClass() == rel.getClass();
       assert equivRel.getTraitSet().equals(rel.getTraitSet());
 
+      // 如果等价表达式已被修剪，则将当前表达式也标记为已修剪
       checkPruned(equivRel, rel);
       return;
     }
 
-    // Add the relational expression into the correct set and subset.
+    // 将关系表达式添加到指定集合中
     if (!prunedNodes.contains(rel)) {
       addRelToSet(rel, set);
     }
   }
 
   /**
-   * Prune rel node if the latter one (identical with rel node)
-   * is already pruned.
+   * 检查重复的关系表达式是否已被修剪，如果已被修剪，则标记当前关系表达式为已修剪。
+   *
+   * @param rel 当前关系表达式
+   * @param duplicateRel 与当前表达式重复的表达式
    */
   private void checkPruned(RelNode rel, RelNode duplicateRel) {
     if (prunedNodes.contains(duplicateRel)) {
@@ -1067,7 +1271,7 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
   }
 
   /**
-   * Find the new root subset in case the root is merged with another subset.
+   * 如果根子集与其他子集合并，找到新的根子集。
    */
   @RequiresNonNull("root")
   void canonize() {
@@ -1075,12 +1279,11 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
   }
 
   /**
-   * If a subset has one or more equivalent subsets (owing to a set having
-   * merged with another), returns the subset which is the leader of the
-   * equivalence class.
+   * 如果子集有一个或多个等价子集（例如集合已与另一个集合合并），
+   * 返回等价类中的主子集。
    *
-   * @param subset Subset
-   * @return Leader of subset's equivalence class
+   * @param subset 子集
+   * @return 等价类的主子集
    */
   private static RelSubset canonize(final RelSubset subset) {
     RelSet set = subset.set;
@@ -1094,138 +1297,167 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
         subset.getCluster(), subset.getTraitSet(), subset.isRequired());
   }
 
+
   /**
-   * Fires all rules matched by a relational expression.
+   * 触发与给定关系表达式匹配的所有规则。
    *
-   * @param rel      Relational expression which has just been created (or maybe
-   *                 from the queue)
+   * @param rel 刚刚创建的关系表达式（或可能来自队列）
    */
   void fireRules(RelNode rel) {
+    // 遍历与关系表达式的类匹配的所有规则操作数
     for (RelOptRuleOperand operand : classOperands.get(rel.getClass())) {
+      // 如果操作数匹配关系表达式
       if (operand.matches(rel)) {
+        // 创建一个延迟的规则调用
         final VolcanoRuleCall ruleCall;
         ruleCall = new DeferringRuleCall(this, operand);
+        // 尝试匹配规则
         ruleCall.match(rel);
       }
     }
   }
 
+  /**
+   * 修正关系表达式的输入，将其更新为最新的等价子集。
+   *
+   * @param rel 要修正的关系表达式
+   * @return 如果输入发生变化，则返回 true；否则返回 false
+   */
   private boolean fixUpInputs(RelNode rel) {
-    List<RelNode> inputs = rel.getInputs();
-    List<RelNode> newInputs = new ArrayList<>(inputs.size());
-    int changeCount = 0;
+    List<RelNode> inputs = rel.getInputs(); // 获取当前表达式的输入
+    List<RelNode> newInputs = new ArrayList<>(inputs.size()); // 存储更新后的输入
+    int changeCount = 0; // 记录输入变化的次数
+
+    // 遍历每个输入表达式
     for (RelNode input : inputs) {
-      assert input instanceof RelSubset;
+      assert input instanceof RelSubset; // 确保输入是 RelSubset 类型
       final RelSubset subset = (RelSubset) input;
-      RelSubset newSubset = canonize(subset);
+      RelSubset newSubset = canonize(subset); // 获取最新的等价子集
       newInputs.add(newSubset);
-      if (newSubset != subset) {
+      if (newSubset != subset) { // 如果子集发生了变化
         if (subset.set != newSubset.set) {
-          subset.set.parents.remove(rel);
-          newSubset.set.parents.add(rel);
+          subset.set.parents.remove(rel); // 从旧子集的父节点列表中移除当前表达式
+          newSubset.set.parents.add(rel); // 将当前表达式添加到新子集的父节点列表中
         }
         changeCount++;
       }
     }
 
-    if (changeCount > 0) {
-      RelMdUtil.clearCache(rel);
-      RelNode removed = mapDigestToRel.remove(rel.getRelDigest());
+    if (changeCount > 0) { // 如果输入发生了变化
+      RelMdUtil.clearCache(rel); // 清除元数据缓存
+      RelNode removed = mapDigestToRel.remove(rel.getRelDigest()); // 移除旧的表达式摘要
       assert removed == rel;
       for (int i = 0; i < inputs.size(); i++) {
-        rel.replaceInput(i, newInputs.get(i));
+        rel.replaceInput(i, newInputs.get(i)); // 替换为更新后的输入
       }
-      rel.recomputeDigest();
+      rel.recomputeDigest(); // 重新计算摘要
       return true;
     }
     return false;
   }
 
+  /**
+   * 合并两个关系集合（RelSet）。
+   *
+   * @param set1 第一个关系集合
+   * @param set2 第二个关系集合
+   * @return 合并后的关系集合
+   */
   private RelSet merge(RelSet set1, RelSet set2) {
-    assert set1 != set2 : "pre: set1 != set2";
+    assert set1 != set2 : "pre: set1 != set2"; // 确保两个集合不同
 
-    // Find the root of each set's equivalence tree.
+    // 找到每个集合的等价根
     set1 = equivRoot(set1);
     set2 = equivRoot(set2);
 
-    // If set1 and set2 are equivalent, there's nothing to do.
+    // 如果两个集合已等价，无需合并
     if (set2 == set1) {
       return set1;
     }
 
-    // If necessary, swap the sets, so we're always merging the newer set
-    // into the older or merging parent set into child set.
+    // 判断是否需要交换集合以确保合并顺序
     final boolean swap;
     final Set<RelSet> childrenOf1 = set1.getChildSets(this);
     final Set<RelSet> childrenOf2 = set2.getChildSets(this);
     final boolean set2IsParentOfSet1 = childrenOf2.contains(set1);
     final boolean set1IsParentOfSet2 = childrenOf1.contains(set2);
     if (set2IsParentOfSet1 && set1IsParentOfSet2) {
-      // There is a cycle of length 1; each set is the (direct) parent of the
-      // other. Swap so that we are merging into the larger, older set.
+      // 两个集合互为父子，合并较小的集合到较大的集合中
       swap = isSmaller(set1, set2);
     } else if (set2IsParentOfSet1) {
-      // set2 is a parent of set1. Do not swap. We want to merge set2 into set.
-      swap = false;
+      swap = false; // 将 set2 合并到 set1
     } else if (set1IsParentOfSet2) {
-      // set1 is a parent of set2. Swap, so that we merge set into set2.
-      swap = true;
+      swap = true; // 将 set1 合并到 set2
     } else {
-      // Neither is a parent of the other.
-      // Swap so that we are merging into the larger, older set.
-      swap = isSmaller(set1, set2);
+      swap = isSmaller(set1, set2); // 默认合并较小的集合到较大的集合
     }
+
     if (swap) {
       RelSet t = set1;
       set1 = set2;
       set2 = t;
     }
 
-    // Merge.
+    // 执行合并操作
     set1.mergeWith(this, set2);
 
     if (root == null) {
       throw new IllegalStateException("root must not be null");
     }
 
-    // Was the set we merged with the root? If so, the result is the new
-    // root.
+    // 如果合并的集合是根集合，则更新根
     if (set2 == getSet(root)) {
-      root =
-          set1.getOrCreateSubset(root.getCluster(), root.getTraitSet(),
-              root.isRequired());
+      root = set1.getOrCreateSubset(root.getCluster(), root.getTraitSet(), root.isRequired());
       ensureRootConverters();
     }
 
+    // 通知规则驱动器集合已合并
     if (ruleDriver != null) {
       ruleDriver.onSetMerged(set1);
     }
+
     return set1;
   }
 
-  /** Returns whether {@code set1} is less popular than {@code set2}
-   * (or smaller, or younger). If so, it will be more efficient to merge set1
-   * into set2 than set2 into set1. */
+  /**
+   * 判断集合 set1 是否比集合 set2 更小或更年轻。
+   *
+   * @param set1 第一个集合
+   * @param set2 第二个集合
+   * @return 如果 set1 更小或更年轻，返回 true；否则返回 false
+   */
   private static boolean isSmaller(RelSet set1, RelSet set2) {
     if (set1.parents.size() != set2.parents.size()) {
-      return set1.parents.size() < set2.parents.size(); // true if set1 is less popular than set2
+      return set1.parents.size() < set2.parents.size(); // 根据父节点数量比较
     }
     if (set1.rels.size() != set2.rels.size()) {
-      return set1.rels.size() < set2.rels.size(); // true if set1 is smaller than set2
+      return set1.rels.size() < set2.rels.size(); // 根据表达式数量比较
     }
-    return set1.id > set2.id; // true if set1 is younger than set2
+    return set1.id > set2.id; // 根据 ID 比较，ID 较大的集合更年轻
   }
 
+  /**
+   * 获取集合的等价根。
+   *
+   * @param s 关系集合
+   * @return 集合的等价根
+   */
   static RelSet equivRoot(RelSet s) {
-    RelSet p = s; // iterates at twice the rate, to detect cycles
+    RelSet p = s; // 用于检测循环的指针
     while (s.equivalentSet != null) {
-      p = forward2(s, p);
+      p = forward2(s, p); // 前进两步检测循环
       s = s.equivalentSet;
     }
     return s;
   }
 
-  /** Moves forward two links, checking for a cycle at each. */
+  /**
+   * 向前移动两步，同时检测循环。
+   *
+   * @param s 当前集合
+   * @param p 循环检测指针
+   * @return 移动后的指针
+   */
   private static @Nullable RelSet forward2(RelSet s, @Nullable RelSet p) {
     p = forward1(s, p);
     p = forward1(s, p);
@@ -1244,117 +1476,89 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
   }
 
   /**
-   * Registers a new expression <code>exp</code> and queues up rule matches.
-   * If <code>set</code> is not null, makes the expression part of that
-   * equivalence set. If an identical expression is already registered, we
-   * don't need to register this one and nor should we queue up rule matches.
+   * 注册一个新的关系表达式 <code>rel</code> 并触发与其匹配的规则。
+   * 如果 <code>set</code> 不为 null，则将该表达式添加到指定的等价集合中。
+   * 如果已存在等价的表达式，则不会重复注册，并直接返回已存在的子集。
    *
-   * @param rel relational expression to register. Must be either a
-   *         {@link RelSubset}, or an unregistered {@link RelNode}
-   * @param set set that rel belongs to, or <code>null</code>
-   * @return the equivalence-set
+   * @param rel 要注册的关系表达式，必须是 {@link RelSubset} 或未注册的 {@link RelNode}
+   * @param set 表示关系表达式所属的集合，可以为 null
+   * @return 表达式所属的等价集合 {@link RelSubset}
    */
-  private RelSubset registerImpl(
-      RelNode rel,
-      @Nullable RelSet set) {
+  private RelSubset registerImpl(RelNode rel, @Nullable RelSet set) {
+    // 如果 rel 已经是一个 RelSubset 类型，直接将其注册到对应的集合
     if (rel instanceof RelSubset) {
       return registerSubset(set, (RelSubset) rel);
     }
 
-    assert !isRegistered(rel) : "already been registered: " + rel;
+    // 确保表达式尚未被注册
+    assert !isRegistered(rel) : "该表达式已注册: " + rel;
+
+    // 确保该表达式属于当前的规划器
     if (rel.getCluster().getPlanner() != this) {
-      throw new AssertionError("Relational expression " + rel
-          + " belongs to a different planner than is currently being used.");
+      throw new AssertionError("关系表达式 " + rel + " 不属于当前规划器。");
     }
 
-    // Now is a good time to ensure that the relational expression
-    // implements the interface required by its calling convention.
+    // 验证表达式的调用约定是否符合要求
     final RelTraitSet traits = rel.getTraitSet();
-    final Convention convention =
-        requireNonNull(traits.getTrait(ConventionTraitDef.INSTANCE));
-    if (!convention.getInterface().isInstance(rel)
-        && !(rel instanceof Converter)) {
-      throw new AssertionError("Relational expression " + rel
-          + " has calling-convention " + convention
-          + " but does not implement the required interface '"
-          + convention.getInterface() + "' of that convention");
+    final Convention convention = requireNonNull(traits.getTrait(ConventionTraitDef.INSTANCE));
+    if (!convention.getInterface().isInstance(rel) && !(rel instanceof Converter)) {
+      throw new AssertionError("关系表达式 " + rel + " 的调用约定 " + convention
+          + " 不符合其要求的接口 '" + convention.getInterface() + "'");
     }
+
+    // 检查表达式的特性数量是否正确
     if (traits.size() != traitDefs.size()) {
-      throw new AssertionError("Relational expression " + rel
-          + " does not have the correct number of traits: " + traits.size()
+      throw new AssertionError("关系表达式 " + rel + " 的特性数量不正确: " + traits.size()
           + " != " + traitDefs.size());
     }
 
-    // Ensure that its sub-expressions are registered.
+    // 确保表达式的子节点已经注册
     rel = rel.onRegister(this);
 
-    // Record its provenance. (Rule call may be null.)
+    // 记录表达式的来源（规则调用可能为空）
     final VolcanoRuleCall ruleCall = ruleCallStack.peek();
     if (ruleCall == null) {
       provenanceMap.put(rel, Provenance.EMPTY);
     } else {
-      provenanceMap.put(
-          rel,
-          new RuleProvenance(
-              ruleCall.rule,
-              ImmutableList.copyOf(ruleCall.rels),
-              ruleCall.id));
+      provenanceMap.put(rel, new RuleProvenance(ruleCall.rule, ImmutableList.copyOf(ruleCall.rels), ruleCall.id));
     }
 
-    // If it is equivalent to an existing expression, return the set that
-    // the equivalent expression belongs to.
+    // 检查是否已存在等价表达式
     RelDigest digest = rel.getRelDigest();
     RelNode equivExp = mapDigestToRel.get(digest);
-    if (equivExp == null) {
-      // do nothing
-    } else if (equivExp == rel) {
-      // The same rel is already registered, so return its subset
-      return getSubsetNonNull(equivExp);
-    } else {
-      if (!RelOptUtil.areRowTypesEqual(equivExp.getRowType(),
-          rel.getRowType(), false)) {
-        throw new IllegalArgumentException(
-            RelOptUtil.getFullTypeDifferenceString("equiv rowtype",
-                equivExp.getRowType(), "rel rowtype", rel.getRowType()));
-      }
-      checkPruned(equivExp, rel);
-
-      RelSet equivSet = getSet(equivExp);
-      if (equivSet != null) {
-        LOGGER.trace(
-            "Register: rel#{} is equivalent to {}", rel.getId(), equivExp);
-        return registerSubset(set, getSubsetNonNull(equivExp));
+    if (equivExp != null) {
+      if (equivExp == rel) {
+        // 如果等价表达式已经存在，直接返回其对应的子集
+        return getSubsetNonNull(equivExp);
+      } else {
+        // 如果表达式行类型不匹配，抛出异常
+        if (!RelOptUtil.areRowTypesEqual(equivExp.getRowType(), rel.getRowType(), false)) {
+          throw new IllegalArgumentException(RelOptUtil.getFullTypeDifferenceString(
+              "等价表达式行类型", equivExp.getRowType(), "当前表达式行类型", rel.getRowType()));
+        }
+        checkPruned(equivExp, rel);
+        RelSet equivSet = getSet(equivExp);
+        if (equivSet != null) {
+          LOGGER.trace("注册: rel#{} 等价于 {}", rel.getId(), equivExp);
+          return registerSubset(set, getSubsetNonNull(equivExp));
+        }
       }
     }
 
-    // Converters are in the same set as their children.
+    // 如果表达式是转换器，将其放入与子节点相同的集合中
     if (rel instanceof Converter) {
       final RelNode input = ((Converter) rel).getInput();
       final RelSet childSet = castNonNull(getSet(input));
-      if ((set != null)
-          && (set != childSet)
-          && (set.equivalentSet == null)) {
-        LOGGER.trace(
-            "Register #{} {} (and merge sets, because it is a conversion)",
-            rel.getId(), rel.getRelDigest());
+      if (set != null && set != childSet && set.equivalentSet == null) {
+        LOGGER.trace("注册 #{} {}（合并集合，因为它是转换器）", rel.getId(), rel.getRelDigest());
         merge(set, childSet);
 
-        // During the mergers, the child set may have changed, and since
-        // we're not registered yet, we won't have been informed. So
-        // check whether we are now equivalent to an existing
-        // expression.
+        // 检查当前表达式是否已等价于其他已注册的表达式
         if (fixUpInputs(rel)) {
           digest = rel.getRelDigest();
           RelNode equivRel = mapDigestToRel.get(digest);
-          if ((equivRel != rel) && (equivRel != null)) {
-
-            // make sure this bad rel didn't get into the
-            // set in any way (fixupInputs will do this but it
-            // doesn't know if it should so it does it anyway)
+          if (equivRel != null && equivRel != rel) {
             set.obliterateRelNode(rel);
-
-            // There is already an equivalent expression. Use that
-            // one, and forget about this one.
             return getSubsetNonNull(equivRel);
           }
         }
@@ -1363,71 +1567,67 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
       }
     }
 
-    // Place the expression in the appropriate equivalence set.
+    // 如果没有提供集合，则创建一个新的集合
     if (set == null) {
-      set =
-          new RelSet(nextSetId++,
-              Util.minus(RelOptUtil.getVariablesSet(rel),
-                  rel.getVariablesSet()),
-              RelOptUtil.getVariablesUsed(rel));
+      set = new RelSet(nextSetId++,
+          Util.minus(RelOptUtil.getVariablesSet(rel), rel.getVariablesSet()),
+          RelOptUtil.getVariablesUsed(rel));
       this.allSets.add(set);
     }
 
-    // Chain to find 'live' equivalent set, just in case several sets are
-    // merging at the same time.
+    // 确保集合被更新到最新的等价集合
     while (set.equivalentSet != null) {
       set = set.equivalentSet;
     }
 
-    // Allow each rel to register its own rules.
+    // 注册与表达式相关的规则
     registerClass(rel);
 
     final int subsetBeforeCount = set.subsets.size();
     RelSubset subset = addRelToSet(rel, set);
 
+    // 如果表达式已被注册到 map 中，则直接返回
     final RelNode xx = mapDigestToRel.putIfAbsent(digest, rel);
-
-    LOGGER.trace("Register {} in {}", rel, subset);
-
-    // This relational expression may have been registered while we
-    // recursively registered its children. If this is the case, we're done.
     if (xx != null) {
       return subset;
     }
 
+    // 将当前表达式添加为其子节点的父节点
     for (RelNode input : rel.getInputs()) {
       RelSubset childSubset = (RelSubset) input;
       childSubset.set.parents.add(rel);
     }
 
-    // Queue up all rules triggered by this relexp's creation.
+    // 触发与表达式匹配的规则
     fireRules(rel);
 
-    // It's a new subset.
-    if (set.subsets.size() > subsetBeforeCount
-        || subset.triggerRule) {
+    // 如果创建了新的子集或触发了规则，则触发子集的规则
+    if (set.subsets.size() > subsetBeforeCount || subset.triggerRule) {
       fireRules(subset);
     }
 
     return subset;
   }
 
+  /**
+   * 将表达式添加到集合中，同时更新映射关系和成本改进。
+   *
+   * @param rel 表达式
+   * @param set 目标集合
+   * @return 表达式所属的子集
+   */
   private RelSubset addRelToSet(RelNode rel, RelSet set) {
     RelSubset subset = set.add(rel);
     mapRel2Subset.put(rel, subset);
 
-    // While a tree of RelNodes is being registered, sometimes nodes' costs
-    // improve and the subset doesn't hear about it. You can end up with
-    // a subset with a single rel of cost 99 which thinks its best cost is
-    // 100. We think this happens because the back-links to parents are
-    // not established. So, give the subset another chance to figure out
-    // its cost.
+    // 改进子集的成本
     try {
       propagateCostImprovements(rel);
     } catch (CyclicMetadataException e) {
-      // ignore
+      // 忽略元数据异常
     }
 
+    // 通知规则驱动器
     if (ruleDriver != null) {
       ruleDriver.onProduce(rel, subset);
     }
@@ -1435,17 +1635,21 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
     return subset;
   }
 
-  private RelSubset registerSubset(
-      @Nullable RelSet set,
-      RelSubset subset) {
-    if ((set != subset.set)
-        && (set != null)
-        && (set.equivalentSet == null)) {
-      LOGGER.trace("Register #{} {}, and merge sets", subset.getId(), subset);
+  /**
+   * 注册子集，并在需要时合并集合。
+   *
+   * @param set 目标集合
+   * @param subset 子集
+   * @return 子集的最新状态
+   */
+  private RelSubset registerSubset(@Nullable RelSet set, RelSubset subset) {
+    if (set != null && set != subset.set && set.equivalentSet == null) {
+      LOGGER.trace("注册 #{} {}, 并合并集合", subset.getId(), subset);
       merge(set, subset.set);
     }
     return canonize(subset);
   }
+
 
   // implement RelOptPlanner
   @Deprecated // to be removed before 2.0
@@ -1531,50 +1735,57 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
   }
 
   /**
-   * Decide whether a rule is logical or not.
+   * 判断一个规则是否是逻辑规则。
    *
-   * @param rel The specific rel node
-   * @return True if the relnode is a logical node
+   * @param rel 指定的关系节点（RelNode）
+   * @return 如果是逻辑节点，返回 true；否则返回 false
    */
   @API(since = "1.24", status = API.Status.EXPERIMENTAL)
   public boolean isLogical(RelNode rel) {
+    // 判断条件：
+    // 1. 关系节点不是 PhysicalNode 的实例；
+    // 2. 该节点的 Convention 不等于根节点的 Convention。
     return !(rel instanceof PhysicalNode)
         && rel.getConvention() != rootConvention;
   }
 
   /**
-   * Checks whether a rule match is a substitution rule match.
+   * 检查一个规则匹配是否是替换规则匹配。
    *
-   * @param match The rule match to check
-   * @return True if the rule match is a substitution rule match
+   * @param match 要检查的规则匹配对象
+   * @return 如果规则匹配是一个替换规则匹配，则返回 true；否则返回 false
    */
   @API(since = "1.24", status = API.Status.EXPERIMENTAL)
   protected boolean isSubstituteRule(VolcanoRuleCall match) {
+    // 判断规则是否为 SubstitutionRule 类型
     return match.getRule() instanceof SubstitutionRule;
   }
 
   /**
-   * Checks whether a rule match is a transformation rule match.
+   * 检查一个规则匹配是否是转换规则匹配。
    *
-   * @param match The rule match to check
-   * @return True if the rule match is a transformation rule match
+   * @param match 要检查的规则匹配对象
+   * @return 如果规则匹配是一个转换规则匹配，则返回 true；否则返回 false
    */
   @API(since = "1.24", status = API.Status.EXPERIMENTAL)
   protected boolean isTransformationRule(VolcanoRuleCall match) {
+    // 判断规则是否为 TransformationRule 类型
     return match.getRule() instanceof TransformationRule;
   }
 
-
   /**
-   * Gets the lower bound cost of a relational operator.
+   * 获取关系操作符的下界成本。
    *
-   * @param rel The rel node
-   * @return The lower bound cost of the given rel. The value is ensured NOT NULL.
+   * @param rel 关系节点（RelNode）
+   * @return 给定关系节点的下界成本。如果无法获取下界成本，返回 zeroCost
    */
   @API(since = "1.24", status = API.Status.EXPERIMENTAL)
   protected RelOptCost getLowerBound(RelNode rel) {
+    // 获取元数据查询对象
     RelMetadataQuery mq = rel.getCluster().getMetadataQuery();
+    // 从元数据中查询关系节点的下界成本
     RelOptCost lowerBound = mq.getLowerBoundCost(rel, this);
+    // 如果未能获取到下界成本，则返回默认值 zeroCost
     if (lowerBound == null) {
       return zeroCost;
     }
@@ -1582,31 +1793,46 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
   }
 
   /**
-   * Gets the upper bound of its inputs.
-   * Allow users to overwrite this method as some implementations may have
-   * different cost model on some RelNodes, like Spool.
+   * 获取其输入的上界成本。
+   * 允许用户覆盖此方法，因为某些实现可能对某些 RelNodes（如 Spool）有不同的成本模型。
+   *
+   * @param mExpr 关系表达式节点
+   * @param upperBound 输入的初始上界成本
+   * @return 更新后的上界成本
    */
   @API(since = "1.24", status = API.Status.EXPERIMENTAL)
   protected RelOptCost upperBoundForInputs(
       RelNode mExpr, RelOptCost upperBound) {
+    // 如果上界成本不是无穷大
     if (!upperBound.isInfinite()) {
+      // 获取节点的非累积成本
       RelOptCost rootCost = mExpr.getCluster()
           .getMetadataQuery().getNonCumulativeCost(mExpr);
+      // 如果非累积成本有效且不是无穷大，则用上界减去非累积成本
       if (rootCost != null && !rootCost.isInfinite()) {
         return upperBound.minus(rootCost);
       }
     }
+    // 返回原始上界
     return upperBound;
   }
+
 
   //~ Inner Classes ----------------------------------------------------------
 
   /**
-   * A rule call which defers its actions. Whereas {@link RelOptRuleCall}
-   * invokes the rule when it finds a match, a <code>DeferringRuleCall</code>
-   * creates a {@link VolcanoRuleMatch} which can be invoked later.
+   * 一个延迟执行规则调用的类。
+   * 与 {@link RelOptRuleCall} 不同，{@link RelOptRuleCall} 在找到匹配时立即执行规则，
+   * 而 <code>DeferringRuleCall</code> 会创建一个 {@link VolcanoRuleMatch}，该匹配可以在稍后调用。
    */
   private static class DeferringRuleCall extends VolcanoRuleCall {
+
+    /**
+     * 构造函数，初始化延迟规则调用。
+     *
+     * @param planner 关联的 VolcanoPlanner 对象，用于管理规则的应用。
+     * @param operand 当前规则操作数，用于匹配的条件。
+     */
     DeferringRuleCall(
         VolcanoPlanner planner,
         RelOptRuleOperand operand) {
@@ -1614,57 +1840,81 @@ public class VolcanoPlanner extends AbstractRelOptPlanner {
     }
 
     /**
-     * Rather than invoking the rule (as the base method does), creates a
-     * {@link VolcanoRuleMatch} which can be invoked later.
+     * 重写基类方法。在找到匹配时，不立即执行规则，而是创建一个
+     * {@link VolcanoRuleMatch} 对象，将匹配信息存储到规则队列中。
      */
-    @Override protected void onMatch() {
+    @Override
+    protected void onMatch() {
+      // 创建一个 VolcanoRuleMatch 实例，包含匹配的信息
       final VolcanoRuleMatch match =
           new VolcanoRuleMatch(
-              volcanoPlanner,
-              getOperand0(),
-              rels,
-              nodeInputs);
+              volcanoPlanner, // 当前的规划器实例
+              getOperand0(),  // 根操作数
+              rels,           // 匹配的关系节点列表
+              nodeInputs);    // 匹配的输入节点列表
+
+      // 将匹配信息加入到规划器的规则队列中，等待后续执行
       volcanoPlanner.ruleDriver.getRuleQueue().addMatch(match);
     }
   }
 
   /**
-   * Where a RelNode came from.
+   * 表示 {@link RelNode} 的来源信息。
    */
   abstract static class Provenance {
+    /**
+     * 一个空的来源信息，表示无法追溯来源的 RelNode。
+     */
     public static final Provenance EMPTY = new UnknownProvenance();
   }
 
   /**
-   * We do not know where this RelNode came from. Probably created by hand,
-   * or by sql-to-rel converter.
+   * 表示一个无法确定来源的 {@link RelNode}。
+   * 这种节点可能是手动创建的，或者通过 SQL 转换为 RelNode 时产生的。
    */
   private static class UnknownProvenance extends Provenance {
   }
 
   /**
-   * A RelNode that came directly from another RelNode via a copy.
+   * 表示一个通过复制另一个 {@link RelNode} 直接生成的 {@link RelNode}。
    */
   static class DirectProvenance extends Provenance {
+    // 来源的 RelNode 节点
     final RelNode source;
 
+    /**
+     * 构造函数，初始化来源信息。
+     *
+     * @param source 来源的关系节点
+     */
     DirectProvenance(RelNode source) {
       this.source = source;
     }
   }
 
   /**
-   * A RelNode that came via the firing of a rule.
+   * 表示一个通过规则执行生成的 {@link RelNode}。
    */
   static class RuleProvenance extends Provenance {
+    // 触发生成该节点的规则
     final RelOptRule rule;
+    // 规则匹配时的关系节点列表
     final ImmutableList<RelNode> rels;
+    // 规则调用的唯一标识符
     final int callId;
 
+    /**
+     * 构造函数，初始化规则来源信息。
+     *
+     * @param rule 触发生成节点的规则
+     * @param rels 规则匹配时涉及的关系节点列表
+     * @param callId 规则调用的唯一标识符
+     */
     RuleProvenance(RelOptRule rule, ImmutableList<RelNode> rels, int callId) {
       this.rule = rule;
       this.rels = rels;
       this.callId = callId;
     }
   }
+
 }
