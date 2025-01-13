@@ -44,70 +44,144 @@ import java.util.function.Supplier;
 import static org.apache.calcite.linq4j.Nullness.castNonNull;
 
 /**
- * RelMetadataQuery provides a strongly-typed facade on top of
- * {@link RelMetadataProvider} for the set of relational expression metadata
- * queries defined as standard within Calcite. The Javadoc on these methods
- * serves as their primary specification.
+ * RelMetadataQuery 是一个强类型的门面接口（facade），基于 {@link RelMetadataProvider} 提供了一套标准的
+ * 关系表达式元数据查询接口，这些接口在 Calcite 中被定义为标准查询。
+ * 方法的 Javadoc 文档提供了它们的主要规范说明。
  *
- * <p>To add a new standard query <code>Xyz</code> to this interface, follow
- * these steps:
+ * <p>如果需要向此接口添加新的标准查询 <code>Xyz</code>，请按照以下步骤操作：
  *
  * <ol>
- * <li>Add a static method <code>getXyz</code> specification to this class.
- * <li>Add unit tests to {@code org.apache.calcite.test.RelMetadataTest}.
- * <li>Write a new provider class <code>RelMdXyz</code> in this package. Follow
- * the pattern from an existing class such as {@link RelMdColumnOrigins},
- * overloading on all of the logical relational expressions to which the query
- * applies.
- * <li>Add a {@code SOURCE} static member, similar to
- *     {@link RelMdColumnOrigins#SOURCE}.
- * <li>Register the {@code SOURCE} object in {@link DefaultRelMetadataProvider}.
- * <li>Get unit tests working.
+ * <li>在此类中添加一个静态方法 <code>getXyz</code> 的规范声明。
+ *     这是新元数据查询的入口方法。
+ * <li>在 {@code org.apache.calcite.test.RelMetadataTest} 中添加对应的单元测试。
+ *     确保新功能具有充分的测试覆盖率。
+ * <li>在当前包下编写一个新的提供者类 <code>RelMdXyz</code>。
+ *     可参考已有的类，例如 {@link RelMdColumnOrigins}，为所有适用的逻辑关系表达式重载相关方法。
+ * <li>为新类添加一个静态成员 {@code SOURCE}，类似于 {@link RelMdColumnOrigins#SOURCE}。
+ *     这个成员用于提供元数据的查询逻辑实现。
+ * <li>在 {@link DefaultRelMetadataProvider} 中注册该 {@code SOURCE} 对象。
+ *     确保新元数据提供者能够被默认的元数据提供者使用。
+ * <li>确保所有单元测试通过。
  * </ol>
  *
- * <p>Because relational expression metadata is extensible, extension projects
- * can define similar facades in order to specify access to custom metadata.
- * Please do not add queries here (nor on {@link RelNode}) which lack meaning
- * outside of your extension.
+ * <p>由于关系表达式元数据具有可扩展性，扩展项目可以定义类似的门面接口，
+ * 以便为自定义的元数据查询提供访问入口。请不要在此类（或 {@link RelNode} 类）中添加
+ * 仅在您的扩展项目中有意义的查询。
  *
- * <p>Besides adding new metadata queries, extension projects may need to add
- * custom providers for the standard queries in order to handle additional
- * relational expressions (either logical or physical). In either case, the
- * process is the same: write a reflective provider and chain it on to an
- * instance of {@link DefaultRelMetadataProvider}, pre-pending it to the default
- * providers. Then supply that instance to the planner via the appropriate
- * plugin mechanism.
+ * <p>除了添加新的元数据查询以外，扩展项目可能需要为标准查询添加自定义的元数据提供者，
+ * 以支持额外的关系表达式（无论是逻辑表达式还是物理表达式）。
+ * 无论是哪种情况，处理流程相同：编写一个反射型的元数据提供者类，并将其链接到
+ * {@link DefaultRelMetadataProvider} 的一个实例上，将其优先于默认提供者使用。
+ * 然后通过合适的插件机制将该实例提供给规划器（planner）。
  */
+
 public class RelMetadataQuery extends RelMetadataQueryBase {
-  // An empty prototype. Only initialize on first use.
+  // 一个空的原型，仅在首次使用时初始化。
   private static final Supplier<RelMetadataQuery> EMPTY =
       Suppliers.memoize(() -> new RelMetadataQuery(false));
+// 通过 Suppliers.memoize 方法确保 RelMetadataQuery 的实例在首次调用时初始化，之后会返回同一个实例，
+// 避免多次初始化带来的开销。
 
+  // 以下是各种内置元数据查询处理器的声明，每个处理器负责具体类型的元数据查询逻辑。
   private BuiltInMetadata.Collation.Handler collationHandler;
+// 用于处理关系表达式的排序信息（Collation）元数据查询的处理器。
+
   private BuiltInMetadata.ColumnOrigin.Handler columnOriginHandler;
+// 用于处理列来源（Column Origin）元数据查询的处理器，
+// 例如确定某个列源自哪个基础表及其字段。
+
   private BuiltInMetadata.ExpressionLineage.Handler expressionLineageHandler;
+// 用于处理表达式血缘（Expression Lineage）元数据查询的处理器，
+// 追踪表达式中的字段和计算关系。
+
   private BuiltInMetadata.TableReferences.Handler tableReferencesHandler;
+// 用于处理表引用（Table References）元数据查询的处理器，
+// 确定一个关系表达式中涉及到哪些基础表。
+
   private BuiltInMetadata.ColumnUniqueness.Handler columnUniquenessHandler;
+// 用于处理列唯一性（Column Uniqueness）元数据查询的处理器，
+// 判断特定列或列集是否能够唯一标识记录。
+
   private BuiltInMetadata.CumulativeCost.Handler cumulativeCostHandler;
+// 用于处理累计成本（Cumulative Cost）元数据查询的处理器，
+// 获取某个关系表达式的执行总成本。
+
   private BuiltInMetadata.DistinctRowCount.Handler distinctRowCountHandler;
+// 用于处理不同行数（Distinct Row Count）元数据查询的处理器，
+// 估算某个列或列集的去重行数。
+
   private BuiltInMetadata.Distribution.Handler distributionHandler;
+// 用于处理分布（Distribution）元数据查询的处理器，
+// 获取数据在计算节点之间的分布方式。
+
   private BuiltInMetadata.ExplainVisibility.Handler explainVisibilityHandler;
+// 用于处理解释可见性（Explain Visibility）元数据查询的处理器，
+// 确定某个关系表达式是否应该出现在 EXPLAIN 计划中。
+
   private BuiltInMetadata.MaxRowCount.Handler maxRowCountHandler;
+// 用于处理最大行数（Max Row Count）元数据查询的处理器，
+// 估算某个关系表达式的最大可能行数。
+
   private BuiltInMetadata.MinRowCount.Handler minRowCountHandler;
+// 用于处理最小行数（Min Row Count）元数据查询的处理器，
+// 估算某个关系表达式的最小可能行数。
+
   private BuiltInMetadata.Memory.Handler memoryHandler;
+// 用于处理内存使用（Memory）元数据查询的处理器，
+// 估算某个关系表达式的内存需求。
+
   private BuiltInMetadata.Measure.Handler measureHandler;
+// 用于处理度量（Measure）元数据查询的处理器，
+// 针对特定度量标准评估关系表达式。
+
   private BuiltInMetadata.NonCumulativeCost.Handler nonCumulativeCostHandler;
+// 用于处理非累计成本（Non-Cumulative Cost）元数据查询的处理器，
+// 获取某个关系表达式的直接执行成本，不包括其子表达式的成本。
+
   private BuiltInMetadata.Parallelism.Handler parallelismHandler;
+// 用于处理并行度（Parallelism）元数据查询的处理器，
+// 获取关系表达式的并行度信息。
+
   private BuiltInMetadata.PercentageOriginalRows.Handler percentageOriginalRowsHandler;
+// 用于处理原始行比例（Percentage Original Rows）元数据查询的处理器，
+// 估算某个关系表达式中保留的原始行的比例。
+
   private BuiltInMetadata.PopulationSize.Handler populationSizeHandler;
+// 用于处理数据集大小（Population Size）元数据查询的处理器，
+// 估算关系表达式的总数据集大小。
+
   private BuiltInMetadata.Predicates.Handler predicatesHandler;
+// 用于处理谓词（Predicates）元数据查询的处理器，
+// 提取关系表达式中应用的过滤条件。
+
   private BuiltInMetadata.AllPredicates.Handler allPredicatesHandler;
+// 用于处理所有谓词（All Predicates）元数据查询的处理器，
+// 获取关系表达式中所有可能的过滤条件。
+
   private BuiltInMetadata.NodeTypes.Handler nodeTypesHandler;
+// 用于处理节点类型（Node Types）元数据查询的处理器，
+// 获取关系表达式树中各个节点的类型分布。
+
   private BuiltInMetadata.RowCount.Handler rowCountHandler;
+// 用于处理行数（Row Count）元数据查询的处理器，
+// 估算某个关系表达式的输出行数。
+
   private BuiltInMetadata.Selectivity.Handler selectivityHandler;
+// 用于处理选择性（Selectivity）元数据查询的处理器，
+// 计算谓词的选择性，即过滤掉的行比例。
+
   private BuiltInMetadata.Size.Handler sizeHandler;
+// 用于处理大小（Size）元数据查询的处理器，
+// 估算关系表达式的输出数据大小。
+
   private BuiltInMetadata.UniqueKeys.Handler uniqueKeysHandler;
+// 用于处理唯一键（Unique Keys）元数据查询的处理器，
+// 获取关系表达式中可能的唯一键集合。
+
   private BuiltInMetadata.LowerBoundCost.Handler lowerBoundCostHandler;
+// 用于处理下界成本（Lower Bound Cost）元数据查询的处理器，
+// 估算执行关系表达式所需的最低成本。
+
 
   /**
    * Creates the instance with {@link JaninoRelMetadataProvider} instance
