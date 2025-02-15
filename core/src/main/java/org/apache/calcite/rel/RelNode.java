@@ -41,226 +41,195 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * A <code>RelNode</code> is a relational expression.
+ * {@code RelNode} 是一个关系表达式（Relational Expression）。
  *
- * <p>Relational expressions process data, so their names are typically verbs:
- * Sort, Join, Project, Filter, Scan, Sample.
+ * <p>关系表达式处理数据，因此它们的名称通常是动词，例如：
+ * Sort（排序）、Join（连接）、Project（投影）、Filter（过滤）、Scan（扫描）、Sample（采样）。
  *
- * <p>A relational expression is not a scalar expression; see
- * {@link org.apache.calcite.sql.SqlNode} and {@link RexNode}.
+ * <p>关系表达式不同于标量表达式（Scalar Expression），有关标量表达式的更多信息，
+ * 请参考 {@link org.apache.calcite.sql.SqlNode} 和 {@link RexNode}。
  *
- * <p>If this type of relational expression has some particular planner rules,
- * it should implement the <em>public static</em> method
- * {@link AbstractRelNode#register}.
+ * <p>如果某种关系表达式类型具有特定的规划器规则（Planner Rules），
+ * 则应实现一个 <em>public static</em> 方法 {@link AbstractRelNode#register} 来注册该规则。
  *
- * <p>When a relational expression comes to be implemented, the system allocates
- * a {@link org.apache.calcite.plan.RelImplementor} to manage the process. Every
- * implementable relational expression has a {@link RelTraitSet} describing its
- * physical attributes. The RelTraitSet always contains a {@link Convention}
- * describing how the expression passes data to its consuming
- * relational expression, but may contain other traits, including some applied
- * externally. Because traits can be applied externally, implementations of
- * RelNode should never assume the size or contents of their trait set (beyond
- * those traits configured by the RelNode itself).
+ * <p>当一个关系表达式需要被实现时，系统会分配 {@link org.apache.calcite.plan.RelImplementor}
+ * 来管理该过程。每个可实现的关系表达式都会包含一个 {@link RelTraitSet}，用于描述其物理属性。
+ * 该 `RelTraitSet` 始终包含一个 {@link Convention}，描述该表达式如何将数据传递给
+ * 消费它的关系表达式。此外，它还可能包含其他特性（Traits），包括一些外部应用的特性。
+ * 由于 `RelTraitSet` 可能包含外部应用的特性，因此 `RelNode` 的实现类不应假设 `RelTraitSet`
+ * 的大小或内容，除了那些由 `RelNode` 自己配置的特性。
  *
- * <p>For each calling-convention, there is a corresponding sub-interface of
- * RelNode. For example,
- * {@code org.apache.calcite.adapter.enumerable.EnumerableRel}
- * has operations to manage the conversion to a graph of
- * {@code org.apache.calcite.adapter.enumerable.EnumerableConvention}
- * calling-convention, and it interacts with a
- * {@code EnumerableRelImplementor}.
+ * <p>对于每种调用约定（Calling-Convention），都有一个相应的 `RelNode` 子接口。例如，
+ * {@code org.apache.calcite.adapter.enumerable.EnumerableRel} 提供了转换到
+ * {@code org.apache.calcite.adapter.enumerable.EnumerableConvention} 调用约定的操作，
+ * 并与 {@code EnumerableRelImplementor} 进行交互。
  *
- * <p>A relational expression is only required to implement its
- * calling-convention's interface when it is actually implemented, that is,
- * converted into a plan/program. This means that relational expressions which
- * cannot be implemented, such as converters, are not required to implement
- * their convention's interface.
+ * <p>只有在关系表达式实际被实现（即转换为执行计划或程序）时，它才需要实现其调用约定的接口。
+ * 这意味着某些不可执行的关系表达式（例如转换器）不需要实现其调用约定的接口。
  *
- * <p>Every relational expression must derive from {@link AbstractRelNode}. (Why
- * have the <code>RelNode</code> interface, then? We need a root interface,
- * because an interface can only derive from an interface.)
+ * <p>所有关系表达式都必须继承自 {@link AbstractRelNode}。
+ * （那么为什么还要定义 `RelNode` 接口呢？这是因为 Java 接口只能继承自另一个接口，
+ * 因此 `RelNode` 作为所有关系表达式的根接口是必要的）。
  */
 public interface RelNode extends RelOptNode, Cloneable {
-  //~ Methods ----------------------------------------------------------------
+  //~ 方法定义 ----------------------------------------------------------------
 
   /**
-   * Return the CallingConvention trait from this RelNode's
-   * {@link #getTraitSet() trait set}.
+   * 返回该 `RelNode` 的调用约定（Calling-Convention）特性，存储在 {@link #getTraitSet()} 中。
    *
-   * @return this RelNode's CallingConvention
+   * @return 该 `RelNode` 的调用约定
    */
   @Pure
   @Nullable Convention getConvention();
 
   /**
-   * Returns the name of the variable which is to be implicitly set at runtime
-   * each time a row is returned from the first input of this relational
-   * expression; or null if there is no variable.
+   * 返回一个变量的名称，该变量在运行时被隐式设置，每次从该关系表达式的第一个输入返回一行时都会被更新。
+   * 如果没有这样的变量，则返回 `null`。
    *
-   * @return Name of correlating variable, or null
+   * @return 关联变量的名称，或者 `null`
    */
   @Nullable String getCorrelVariable();
 
   /**
-   * Returns the <code>i</code><sup>th</sup> input relational expression.
+   * 返回该关系表达式的第 `i` 个输入。
    *
-   * @param i Ordinal of input
-   * @return <code>i</code><sup>th</sup> input
+   * @param i 输入的序号（从 0 开始）
+   * @return 第 `i` 个输入的关系表达式
    */
   RelNode getInput(int i);
 
   /**
-   * Returns the type of the rows returned by this relational expression.
+   * 返回该关系表达式返回的行的类型（数据结构）。
+   *
+   * @return 行类型信息
    */
   @Override RelDataType getRowType();
 
   /**
-   * Returns the type of the rows expected for an input. Defaults to
-   * {@link #getRowType}.
+   * 返回该关系表达式期望的输入行类型，默认实现返回 {@link #getRowType()}。
    *
-   * @param ordinalInParent input's 0-based ordinal with respect to this
-   *                        parent rel
-   * @return expected row type
+   * @param ordinalInParent 在父 `RelNode` 中的输入索引（从 0 开始）
+   * @return 期望的输入行类型
    */
   RelDataType getExpectedInputRowType(int ordinalInParent);
 
   /**
-   * Returns an array of this relational expression's inputs. If there are no
-   * inputs, returns an empty list, not {@code null}.
+   * 返回该关系表达式的所有输入。如果没有输入，则返回一个空列表，而不是 `null`。
    *
-   * @return Array of this relational expression's inputs
+   * @return 该关系表达式的输入列表
    */
   @Override List<RelNode> getInputs();
 
   /**
-   * Returns an estimate of the number of rows this relational expression will
-   * return.
+   * 估算该关系表达式返回的行数。
    *
-   * <p>NOTE jvs 29-Mar-2006: Don't call this method directly. Instead, use
-   * {@link RelMetadataQuery#getRowCount}, which gives plugins a chance to
-   * override the rel's default ideas about row count.
+   * <p><strong>注意：</strong>请不要直接调用此方法，而应使用 {@link RelMetadataQuery#getRowCount}，
+   * 以允许插件覆盖关系表达式对行数的默认估算策略。
    *
-   * @param mq Metadata query
-   * @return Estimate of the number of rows this relational expression will
-   *   return
+   * @param mq 元数据查询对象
+   * @return 估算的返回行数
    */
   double estimateRowCount(RelMetadataQuery mq);
 
   /**
-   * Returns the variables that are set in this relational
-   * expression but also used and therefore not available to parents of this
-   * relational expression.
+   * 返回在该关系表达式中定义但也被使用，并因此对其父表达式不可用的变量集合。
    *
-   * @return Names of variables which are set in this relational
-   *   expression
+   * @return 该关系表达式定义但对父级不可用的变量集合
    */
   Set<CorrelationId> getVariablesSet();
 
   /**
-   * Collects variables known to be used by this expression or its
-   * descendants. By default, no such information is available and must be
-   * derived by analyzing sub-expressions, but some optimizer implementations
-   * may insert special expressions which remember such information.
+   * 收集该表达式或其子表达式中使用的变量。
    *
-   * @param variableSet receives variables used
+   * <p>默认情况下，不会提供这些信息，而是需要通过分析子表达式来推导。
+   * 但某些优化器实现可能会插入特殊的表达式，以存储这些信息。
+   *
+   * @param variableSet 存储收集到的变量
    */
   void collectVariablesUsed(Set<CorrelationId> variableSet);
 
   /**
-   * Collects variables set by this expression.
-   * TODO: is this required?
+   * 收集该表达式所设置的变量。
+   * TODO: 是否必须提供该方法？
    *
-   * @param variableSet receives variables known to be set by
+   * @param variableSet 存储收集到的变量
    */
   void collectVariablesSet(Set<CorrelationId> variableSet);
 
   /**
-   * Interacts with the {@link RelVisitor} in a
-   * {@link org.apache.calcite.util.Glossary#VISITOR_PATTERN visitor pattern} to
-   * traverse the tree of relational expressions.
+   * 采用访问者模式（Visitor Pattern）遍历关系表达式树。
    *
-   * @param visitor Visitor that will traverse the tree of relational
-   *                expressions
+   * @param visitor 访问者对象
    */
   void childrenAccept(RelVisitor visitor);
 
   /**
-   * Returns the cost of this plan (not including children). The base
-   * implementation throws an error; derived classes should override.
+   * 计算该执行计划的成本（不包括其子节点）。
+   * 该方法的默认实现会抛出异常，子类需要进行覆盖。
    *
-   * <p>NOTE jvs 29-Mar-2006: Don't call this method directly. Instead, use
-   * {@link RelMetadataQuery#getNonCumulativeCost}, which gives plugins a
-   * chance to override the rel's default ideas about cost.
+   * <p><strong>注意：</strong>请不要直接调用此方法，而应使用
+   * {@link RelMetadataQuery#getNonCumulativeCost}，以允许插件覆盖关系表达式的默认成本估算逻辑。
    *
-   * @param planner Planner for cost calculation
-   * @param mq Metadata query
-   * @return Cost of this plan (not including children)
+   * @param planner 规划器对象
+   * @param mq      元数据查询对象
+   * @return 计算出的成本（不包括子节点）
    */
   @Nullable RelOptCost computeSelfCost(RelOptPlanner planner, RelMetadataQuery mq);
 
+
   /**
-   * Returns a metadata interface.
+   * 返回元数据接口。
    *
-   * @deprecated Use {@link RelMetadataQuery} via {@link #getCluster()}.
+   * @deprecated 建议通过 {@link #getCluster()} 使用 {@link RelMetadataQuery} 进行元数据查询。
    *
-   * @param <M> Type of metadata being requested
-   * @param metadataClass Metadata interface
-   * @param mq Metadata query
-   *
-   * @return Metadata object that supplies the desired metadata (never null,
-   *     although if the information is not present the metadata object may
-   *     return null from all methods)
+   * @param <M> 元数据的类型
+   * @param metadataClass 元数据接口类
+   * @param mq 元数据查询对象
+   * @return 提供所需元数据的元数据对象（永不为 `null`，但如果信息不可用，则对象的所有方法可能返回 `null`）
    */
-  @Deprecated // to be removed before 2.0
+  @Deprecated // 计划在 2.0 版本之前移除
   <@Nullable M extends @Nullable Metadata> M metadata(Class<M> metadataClass, RelMetadataQuery mq);
 
   /**
-   * Describes the inputs and attributes of this relational expression.
-   * Each node should call {@code super.explain}, then call the
-   * {@link org.apache.calcite.rel.externalize.RelWriterImpl#input(String, RelNode)}
-   * and
-   * {@link RelWriter#item(String, Object)}
-   * methods for each input and attribute.
+   * 描述该关系表达式的输入和属性。
    *
-   * @param pw Plan writer
+   * <p>每个 `RelNode` 需要调用 `super.explain`，然后调用
+   * {@link org.apache.calcite.rel.externalize.RelWriterImpl#input(String, RelNode)}
+   * 和 {@link RelWriter#item(String, Object)} 方法，为每个输入和属性添加信息。
+   *
+   * @param pw 计划写入器（Plan Writer）
    */
   void explain(RelWriter pw);
 
   /**
-   * Returns a relational expression string of this {@code RelNode}.
-   * The string returned is the same as
-   * {@link RelOptUtil#toString(org.apache.calcite.rel.RelNode)}.
+   * 返回当前 `RelNode` 的关系表达式字符串表示形式。
    *
-   * <p>This method is intended mainly for use while debugging in an IDE,
-   * as a convenient shorthand for {@link RelOptUtil#toString}.
-   * We recommend that classes implementing this interface
-   * do not override this method.
+   * <p>该方法返回的字符串与 {@link RelOptUtil#toString(org.apache.calcite.rel.RelNode)} 相同。
+   * 主要用于在 IDE 中调试时方便查看 `RelNode` 的表示形式。
+   * 建议实现此接口的类不要重写该方法。
    *
-   * @return Relational expression string of this {@code RelNode}
+   * @return 当前 `RelNode` 的关系表达式字符串表示
    */
   default String explain() {
     return RelOptUtil.toString(this);
   }
 
   /**
-   * Receives notification that this expression is about to be registered. The
-   * implementation of this method must at least register all child
-   * expressions.
+   * 当该关系表达式即将被注册时收到通知。
    *
-   * @param planner Planner that plans this relational node
-   * @return Relational expression that should be used by the planner
+   * <p>该方法的实现必须至少注册所有子表达式。
+   *
+   * @param planner 规划器（Planner），用于规划该 `RelNode`
+   * @return 规划器应使用的关系表达式
    */
   RelNode onRegister(RelOptPlanner planner);
 
   /**
-   * Returns a digest string of this {@code RelNode}.
+   * 返回当前 `RelNode` 的摘要字符串（Digest String）。
    *
-   * <p>Each call creates a new digest string,
-   * so don't forget to cache the result if necessary.
+   * <p>每次调用都会生成一个新的摘要字符串，因此如果需要，可以对结果进行缓存。
    *
-   * @return Digest string of this {@code RelNode}
-   *
+   * @return 当前 `RelNode` 的摘要字符串
    * @see #getRelDigest()
    */
   @Override default String getDigest() {
@@ -268,20 +237,20 @@ public interface RelNode extends RelOptNode, Cloneable {
   }
 
   /**
-   * Returns a digest of this {@code RelNode}.
+   * 返回当前 `RelNode` 的摘要信息（Digest）。
    *
-   * <p>INTERNAL USE ONLY. For use by the planner.
+   * <p><strong>仅限内部使用</strong>，供规划器（Planner）使用。
    *
-   * @return Digest of this {@code RelNode}
+   * @return 当前 `RelNode` 的摘要信息
    * @see #getDigest()
    */
   @API(since = "1.24", status = API.Status.INTERNAL)
   RelDigest getRelDigest();
 
   /**
-   * Recomputes the digest.
+   * 重新计算该 `RelNode` 的摘要信息（Digest）。
    *
-   * <p>INTERNAL USE ONLY. For use by the planner.
+   * <p><strong>仅限内部使用</strong>，供规划器（Planner）使用。
    *
    * @see #getDigest()
    */
@@ -289,149 +258,154 @@ public interface RelNode extends RelOptNode, Cloneable {
   void recomputeDigest();
 
   /**
-   * Deep equality check for RelNode digest.
+   * 深度相等检查，判断两个 `RelNode` 是否等价或具有相同的摘要信息（Digest）。
    *
-   * <p>By default this method collects digest attributes from
-   * explain terms, then compares each attribute pair.
+   * <p>默认实现会从 `explain` 方法收集摘要属性，并逐个比较属性值。
    *
-   * @return Whether the 2 RelNodes are equivalent or have the same digest.
+   * @param obj 另一个对象
+   * @return 如果两个 `RelNode` 等价或具有相同摘要信息，则返回 `true`
    * @see #deepHashCode()
    */
   @EnsuresNonNullIf(expression = "#1", result = true)
   boolean deepEquals(@Nullable Object obj);
 
   /**
-   * Compute deep hash code for RelNode digest.
+   * 计算 `RelNode` 摘要信息的深度哈希码（Deep Hash Code）。
    *
    * @see #deepEquals(Object)
    */
   int deepHashCode();
 
   /**
-   * Replaces the <code>ordinalInParent</code><sup>th</sup> input. You must
-   * override this method if you override {@link #getInputs}.
+   * 替换该 `RelNode` 的第 `ordinalInParent` 个输入。
    *
-   * @param ordinalInParent Position of the child input, 0 is the first
-   * @param p New node that should be put at position {@code ordinalInParent}
+   * <p>如果重写了 {@link #getInputs()}，则必须重写该方法。
+   *
+   * @param ordinalInParent 子输入的位置索引（从 0 开始）
+   * @param p 替换的新 `RelNode`
    */
-  void replaceInput(
-      int ordinalInParent,
-      RelNode p);
+  void replaceInput(int ordinalInParent, RelNode p);
 
   /**
-   * If this relational expression represents an access to a table, returns
-   * that table, otherwise returns null.
+   * 如果该关系表达式表示对表的访问，则返回该表；否则返回 `null`。
    *
-   * @return If this relational expression represents an access to a table,
-   *   returns that table, otherwise returns null
+   * @return 如果该 `RelNode` 访问表，则返回该表对象，否则返回 `null`
    */
   @Nullable RelOptTable getTable();
 
   /**
-   * Returns the name of this relational expression's class, sans package
-   * name, for use in explain. For example, for a <code>
-   * org.apache.calcite.rel.ArrayRel.ArrayReader</code>, this method returns
-   * "ArrayReader".
+   * 返回该关系表达式所属类的名称，不包含包名。
    *
-   * @return Name of this relational expression's class, sans package name,
-   *   for use in explain
+   * <p>例如，对于 `org.apache.calcite.rel.ArrayRel.ArrayReader`，该方法返回 `"ArrayReader"`。
+   *
+   * @return 该 `RelNode` 的类名（不含包路径），用于 `explain` 方法
    */
   String getRelTypeName();
 
   /**
-   * Returns whether this relational expression is valid.
+   * 检查当前 `RelNode` 是否有效。
    *
-   * <p>If assertions are enabled, this method is typically called with <code>
-   * litmus</code> = <code>THROW</code>, as follows:
-   *
+   * <p>如果启用了断言（assertions），通常会使用 `litmus = THROW` 进行调用，如：
    * <blockquote>
    * <pre>assert rel.isValid(Litmus.THROW)</pre>
    * </blockquote>
+   * 这样，如果 `RelNode` 无效，该方法会抛出 {@link AssertionError}。
    *
-   * <p>This signals that the method can throw an {@link AssertionError} if it
-   * is not valid.
-   *
-   * @param litmus What to do if invalid
-   * @param context Context for validity checking
-   * @return Whether relational expression is valid
-   * @throws AssertionError if this relational expression is invalid and
-   *                        litmus is THROW
+   * @param litmus 无效时的处理方式
+   * @param context 用于校验有效性的上下文信息
+   * @return 关系表达式是否有效
+   * @throws AssertionError 如果 `RelNode` 无效且 `litmus = THROW`
    */
   boolean isValid(Litmus litmus, @Nullable Context context);
 
+
   /**
-   * Creates a copy of this relational expression, perhaps changing traits and
-   * inputs.
+   * 创建当前关系表达式（RelNode）的一个副本，并可能更改其属性（traits）和输入（inputs）。
    *
-   * <p>Sub-classes with other important attributes are encouraged to create
-   * variants of this method with more parameters.
+   * <p>子类如果有其他重要的属性，建议创建此方法的变体，并添加更多参数来支持这些属性的拷贝。</p>
    *
-   * @param traitSet Trait set
-   * @param inputs   Inputs
-   * @return Copy of this relational expression, substituting traits and
-   * inputs
+   * @param traitSet 需要应用的新特征集合（TraitSet）
+   * @param inputs   该关系表达式的新输入列表
+   * @return 具有新特征和输入的关系表达式副本
    */
   RelNode copy(
       RelTraitSet traitSet,
       List<RelNode> inputs);
 
   /**
-   * Registers any special rules specific to this kind of relational
-   * expression.
+   * 注册该关系表达式（RelNode）特有的优化规则。
    *
-   * <p>The planner calls this method this first time that it sees a
-   * relational expression of this class. The derived class should call
-   * {@link org.apache.calcite.plan.RelOptPlanner#addRule} for each rule, and
-   * then call {@code super.register}.
+   * <p>当规划器（Planner）首次遇到该类型的关系表达式时，会调用此方法。</p>
+   * <p>派生类应在该方法内调用 {@link org.apache.calcite.plan.RelOptPlanner#addRule}
+   * 来注册每个适用的规则，并最终调用 {@code super.register}。</p>
    *
-   * @param planner Planner to be used to register additional relational
-   *                expressions
+   * @param planner 用于注册额外关系表达式的规划器（Planner）
    */
   void register(RelOptPlanner planner);
 
   /**
-   * Indicates whether it is an enforcer operator, e.g. PhysicalSort,
-   * PhysicalHashDistribute, etc. As an enforcer, the operator must be
-   * created only when required traitSet is not satisfied by its input.
+   * 指示该关系表达式是否为 "Enforcer" 操作符，例如 `PhysicalSort`、`PhysicalHashDistribute` 等。
    *
-   * @return Whether it is an enforcer operator
+   * <p>作为 "Enforcer"（强制转换算子），该操作符仅在其输入不满足所需的 `traitSet` 时创建。</p>
+   *
+   * @return 如果该操作符为 "Enforcer"，返回 `true`；否则返回 `false`
    */
   default boolean isEnforcer() {
     return false;
   }
 
   /**
-   * Accepts a visit from a shuttle.
+   * 接受 `RelShuttle` 访问者模式的访问。
    *
-   * @param shuttle Shuttle
-   * @return A copy of this node incorporating changes made by the shuttle to
-   * this node's children
+   * <p>该方法用于遍历和修改关系表达式的树结构，应用 `RelShuttle` 进行遍历和变换。</p>
+   *
+   * @param shuttle 访问该 `RelNode` 的 `RelShuttle`
+   * @return 一个包含 `shuttle` 对当前节点子节点修改后的 `RelNode` 副本
    */
   RelNode accept(RelShuttle shuttle);
 
   /**
-   * Accepts a visit from a shuttle. If the shuttle updates expression, then
-   * a copy of the relation should be created. This new relation might have
-   * a different row-type.
+   * 接受 `RexShuttle` 访问者模式的访问。
    *
-   * @param shuttle Shuttle
-   * @return A copy of this node incorporating changes made by the shuttle to
-   * this node's children
+   * <p>如果 `shuttle` 修改了表达式（expression），则应创建关系表达式的副本。
+   * 该新关系表达式可能会具有不同的行类型（Row Type）。</p>
+   *
+   * @param shuttle 访问该 `RelNode` 的 `RexShuttle`
+   * @return 一个包含 `shuttle` 变更后的 `RelNode` 副本
    */
   RelNode accept(RexShuttle shuttle);
 
-  /** Returns whether a field is nullable. */
+  /**
+   * 判断指定索引的字段是否可为空。
+   *
+   * @param i 字段索引（基于 0）
+   * @return 如果字段可为空，则返回 `true`，否则返回 `false`
+   */
   default boolean fieldIsNullable(int i) {
     return getRowType().getFieldList().get(i).getType().isNullable();
   }
 
-  /** Returns this node without any wrapper added by the planner. */
+  /**
+   * 返回当前 `RelNode`，但去除了规划器可能添加的任何包装（Wrapper）。
+   *
+   * <p>此方法的默认实现返回 `this`，子类可以重写以移除可能存在的额外包装。</p>
+   *
+   * @return 经过去包装的 `RelNode`
+   */
   default RelNode stripped() {
     return this;
   }
 
-  /** Context of a relational expression, for purposes of checking validity. */
+  /**
+   * 关系表达式（Relational Expression）的上下文接口，用于校验有效性。
+   */
   interface Context {
+    /**
+     * 返回当前上下文中的相关性 ID（Correlation IDs）。
+     *
+     * @return 相关性 ID 集合
+     */
     Set<CorrelationId> correlationIds();
   }
+
 }

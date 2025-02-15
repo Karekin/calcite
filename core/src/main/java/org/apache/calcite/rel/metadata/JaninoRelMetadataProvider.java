@@ -47,21 +47,19 @@ import java.util.stream.Collectors;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Implementation of the {@link RelMetadataProvider} interface that generates
- * a class that dispatches to the underlying providers.
+ * 实现了 {@link RelMetadataProvider} 接口的类，生成一个类，该类分发给底层提供者。
  */
 public class JaninoRelMetadataProvider implements RelMetadataProvider, MetadataHandlerProvider {
   private final RelMetadataProvider provider;
 
-  // Constants and static fields
+  // 常量和静态字段
 
+  // 默认的 JaninoRelMetadataProvider 实例
   public static final JaninoRelMetadataProvider DEFAULT =
       JaninoRelMetadataProvider.of(DefaultRelMetadataProvider.INSTANCE);
 
-
-  /** Cache of pre-generated handlers by provider and kind of metadata.
-   * For the cache to be effective, providers should implement identity
-   * correctly. */
+  /** 存储由提供者和元数据类型生成的处理器的缓存。
+   * 为了使缓存有效，提供者应该正确实现身份方法。 */
   private static final LoadingCache<Key, MetadataHandler<?>> HANDLERS =
       maxSize(CacheBuilder.newBuilder(),
           CalciteSystemProperty.METADATA_HANDLER_CACHE_MAXIMUM_SIZE.value())
@@ -70,14 +68,14 @@ public class JaninoRelMetadataProvider implements RelMetadataProvider, MetadataH
                   generateCompileAndInstantiate(key.handlerClass,
                       key.provider.handlers(key.handlerClass))));
 
-  /** Private constructor; use {@link #of}. */
+  /** 私有构造函数；使用 {@link #of} 方法。 */
   private JaninoRelMetadataProvider(RelMetadataProvider provider) {
     this.provider = provider;
   }
 
-  /** Creates a JaninoRelMetadataProvider.
+  /** 创建一个 JaninoRelMetadataProvider 实例。
    *
-   * @param provider Underlying provider
+   * @param provider 底层的提供者
    */
   public static JaninoRelMetadataProvider of(RelMetadataProvider provider) {
     if (provider instanceof JaninoRelMetadataProvider) {
@@ -86,63 +84,84 @@ public class JaninoRelMetadataProvider implements RelMetadataProvider, MetadataH
     return new JaninoRelMetadataProvider(provider);
   }
 
-  // helper for initialization
+  // 初始化帮助方法
   private static <K, V> CacheBuilder<K, V> maxSize(CacheBuilder<K, V> builder,
       int size) {
     if (size >= 0) {
-      builder.maximumSize(size);
+      builder.maximumSize(size); // 设置缓存的最大大小
     }
     return builder;
   }
 
   @Override public boolean equals(@Nullable Object obj) {
+    // 判断是否与其他对象相等
     return obj == this
         || obj instanceof JaninoRelMetadataProvider
         && ((JaninoRelMetadataProvider) obj).provider.equals(provider);
   }
 
   @Override public int hashCode() {
+    // 返回对象的哈希值
     return 109 + provider.hashCode();
   }
 
-  @Deprecated // to be removed before 2.0
+  @Deprecated // 计划在 2.0 版本中移除
   @Override public <@Nullable M extends @Nullable Metadata> UnboundMetadata<M> apply(
       Class<? extends RelNode> relClass, Class<? extends M> metadataClass) {
     throw new UnsupportedOperationException();
   }
 
-  @Deprecated // to be removed before 2.0
+  @Deprecated // 计划在 2.0 版本中移除
   @Override public <M extends Metadata> Multimap<Method, MetadataHandler<M>>
-      handlers(MetadataDef<M> def) {
-    return provider.handlers(def);
+  handlers(MetadataDef<M> def) {
+    return provider.handlers(def); // 委托给底层提供者
   }
 
   @Override public List<MetadataHandler<?>> handlers(
       Class<? extends MetadataHandler<?>> handlerClass) {
-    return provider.handlers(handlerClass);
+    return provider.handlers(handlerClass); // 委托给底层提供者
   }
 
+  /**
+   * 生成并编译处理器实例。
+   * @param handlerClass 处理器类
+   * @param handlers 处理器列表
+   * @param <MH> 处理器类型
+   * @return 生成并编译的处理器
+   */
   private static <MH extends MetadataHandler<?>> MH generateCompileAndInstantiate(
       Class<MH> handlerClass,
       List<? extends MetadataHandler<? extends Metadata>> handlers) {
 
+    // 移除重复的处理器
     final List<? extends MetadataHandler<? extends Metadata>> uniqueHandlers = handlers.stream()
         .distinct()
         .collect(Collectors.toList());
+    // 生成处理器的名称和代码
     RelMetadataHandlerGeneratorUtil.HandlerNameAndGeneratedCode handlerNameAndGeneratedCode =
         RelMetadataHandlerGeneratorUtil.generateHandler(handlerClass, uniqueHandlers);
 
     try {
+      // 编译并实例化处理器
       return compile(handlerNameAndGeneratedCode.getHandlerName(),
           handlerNameAndGeneratedCode.getGeneratedCode(), handlerClass, uniqueHandlers);
     } catch (CompileException e) {
-      throw new RuntimeException("Error compiling:\n"
+      throw new RuntimeException("编译错误:\n"
           + handlerNameAndGeneratedCode.getGeneratedCode(), e);
     }
   }
 
-
-  static  <MH extends MetadataHandler<?>> MH compile(String className,
+  /**
+   * 编译生成的代码并返回处理器实例。
+   * @param className 生成的类名
+   * @param generatedCode 生成的代码
+   * @param handlerClass 处理器类
+   * @param argList 传递给构造函数的参数列表
+   * @param <MH> 处理器类型
+   * @return 处理器实例
+   * @throws CompileException 编译异常
+   */
+  static <MH extends MetadataHandler<?>> MH compile(String className,
       String generatedCode, Class<MH> handlerClass,
       List<? extends Object> argList) throws CompileException {
     final ICompilerFactory compilerFactory;
@@ -153,14 +172,14 @@ public class JaninoRelMetadataProvider implements RelMetadataProvider, MetadataH
       compilerFactory = CompilerFactoryFactory.getDefaultCompilerFactory(classLoader);
     } catch (Exception e) {
       throw new IllegalStateException(
-          "Unable to instantiate java compiler", e);
+          "无法实例化 Java 编译器", e);
     }
 
     final ISimpleCompiler compiler = compilerFactory.newSimpleCompiler();
     compiler.setParentClassLoader(JaninoRexCompiler.class.getClassLoader());
 
     if (CalciteSystemProperty.DEBUG.value()) {
-      // Add line numbers to the generated janino class
+      // 在生成的 Janino 类中添加行号信息
       compiler.setDebuggingInformation(true, true, true);
       System.out.println(generatedCode);
     }
@@ -173,35 +192,36 @@ public class JaninoRelMetadataProvider implements RelMetadataProvider, MetadataH
           .getDeclaredConstructors()[0];
       o = constructor.newInstance(argList.toArray());
     } catch (InstantiationException
-        | IllegalAccessException
-        | InvocationTargetException
-        | ClassNotFoundException e) {
+             | IllegalAccessException
+             | InvocationTargetException
+             | ClassNotFoundException e) {
       throw new RuntimeException(e);
     }
-    return handlerClass.cast(o);
+    return handlerClass.cast(o); // 将生成的对象转换为指定的处理器类型
   }
 
   @Override public synchronized <H extends MetadataHandler<?>> H revise(Class<H> handlerClass) {
     try {
       final Key key = new Key(handlerClass, provider);
       //noinspection unchecked
-      return handlerClass.cast(HANDLERS.get(key));
+      return handlerClass.cast(HANDLERS.get(key)); // 获取缓存中的处理器
     } catch (UncheckedExecutionException | ExecutionException e) {
       throw Util.throwAsRuntime(Util.causeOrSelf(e));
     }
   }
 
-  /** Registers some classes. Does not flush the providers, but next time we
-   * need to generate a provider, it will handle all of these classes. So,
-   * calling this method reduces the number of times we need to re-generate. */
+  /**
+   * 注册一些类。此方法不会刷新提供者，但下一次生成提供者时，它将处理这些类。
+   * 因此，调用此方法可以减少重新生成的次数。
+   */
   @Deprecated
   public void register(Iterable<Class<? extends RelNode>> classes) {
   }
 
-  /** Exception that indicates there there should be a handler for
-   * this class but there is not. The action is probably to
-   * re-generate the handler class. Use {@link MetadataHandlerProvider.NoHandler} instead.
-   * */
+  /**
+   * 指示应该为该类提供处理器的异常类，且当前没有处理器。
+   * 可能的操作是重新生成处理器类。请使用 {@link MetadataHandlerProvider.NoHandler} 替代。
+   */
   @Deprecated
   public static class NoHandler extends MetadataHandlerProvider.NoHandler {
     public NoHandler(Class<? extends RelNode> relClass) {
@@ -209,7 +229,7 @@ public class JaninoRelMetadataProvider implements RelMetadataProvider, MetadataH
     }
   }
 
-  /** Key for the cache. */
+  /** 缓存的键 */
   private static class Key {
     final Class<? extends MetadataHandler<? extends Metadata>> handlerClass;
     final RelMetadataProvider provider;
@@ -222,7 +242,7 @@ public class JaninoRelMetadataProvider implements RelMetadataProvider, MetadataH
 
     @Override public int hashCode() {
       return (handlerClass.hashCode() * 37
-          + provider.hashCode()) * 37;
+          + provider.hashCode()) * 37; // 根据处理器类和提供者生成哈希码
     }
 
     @Override public boolean equals(@Nullable Object obj) {
@@ -235,6 +255,7 @@ public class JaninoRelMetadataProvider implements RelMetadataProvider, MetadataH
 
   @SuppressWarnings("deprecation")
   @Override public <MH extends MetadataHandler<?>> MH handler(final Class<MH> handlerClass) {
+    // 为没有处理器的情况创建代理
     return handlerClass.cast(
         Proxy.newProxyInstance(RelMetadataQuery.class.getClassLoader(),
             new Class[] {handlerClass}, (proxy, method, args) -> {
@@ -246,6 +267,7 @@ public class JaninoRelMetadataProvider implements RelMetadataProvider, MetadataH
   @API(status = API.Status.INTERNAL)
   @VisibleForTesting
   public static void clearStaticCache() {
-    HANDLERS.invalidateAll();
+    HANDLERS.invalidateAll(); // 清空缓存
   }
 }
+

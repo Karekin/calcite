@@ -184,41 +184,43 @@ public class RelMetadataQuery extends RelMetadataQueryBase {
 
 
   /**
-   * Creates the instance with {@link JaninoRelMetadataProvider} instance
-   * from {@link #THREAD_PROVIDERS} and {@link #EMPTY} as a prototype.
+   * 通过 {@link JaninoRelMetadataProvider} 实例创建 `RelMetadataQuery`。
+   *
+   * <p>该构造方法使用 {@link #THREAD_PROVIDERS} 线程局部变量获取 `JaninoRelMetadataProvider`，
+   * 并使用 {@link #EMPTY} 作为原型，以确保元数据查询的正确初始化。
    */
   protected RelMetadataQuery() {
     this(castNonNull(THREAD_PROVIDERS.get()), EMPTY.get());
   }
 
   /**
-   * Create a RelMetadataQuery with a given {@link MetadataHandlerProvider}.
+   * 使用指定的 {@link MetadataHandlerProvider} 创建 `RelMetadataQuery`。
    *
-   * @param provider The provider to use for construction.
+   * <p>在 `MetadataHandlerProvider` 之上构造 `RelMetadataQuery`，并初始化所有的内置元数据处理器。
+   * 这些处理器用于执行不同类型的元数据查询。
+   *
+   * @param provider 用于元数据查询的处理器提供者
    */
   public RelMetadataQuery(MetadataHandlerProvider provider) {
     super(provider);
+
+    // 初始化各种内置元数据查询处理器
     this.collationHandler = provider.handler(BuiltInMetadata.Collation.Handler.class);
     this.columnOriginHandler = provider.handler(BuiltInMetadata.ColumnOrigin.Handler.class);
-    this.expressionLineageHandler =
-        provider.handler(BuiltInMetadata.ExpressionLineage.Handler.class);
+    this.expressionLineageHandler = provider.handler(BuiltInMetadata.ExpressionLineage.Handler.class);
     this.tableReferencesHandler = provider.handler(BuiltInMetadata.TableReferences.Handler.class);
     this.columnUniquenessHandler = provider.handler(BuiltInMetadata.ColumnUniqueness.Handler.class);
     this.cumulativeCostHandler = provider.handler(BuiltInMetadata.CumulativeCost.Handler.class);
     this.distinctRowCountHandler = provider.handler(BuiltInMetadata.DistinctRowCount.Handler.class);
     this.distributionHandler = provider.handler(BuiltInMetadata.Distribution.Handler.class);
-    this.explainVisibilityHandler =
-        provider.handler(BuiltInMetadata.ExplainVisibility.Handler.class);
+    this.explainVisibilityHandler = provider.handler(BuiltInMetadata.ExplainVisibility.Handler.class);
     this.maxRowCountHandler = provider.handler(BuiltInMetadata.MaxRowCount.Handler.class);
     this.minRowCountHandler = provider.handler(BuiltInMetadata.MinRowCount.Handler.class);
     this.memoryHandler = provider.handler(BuiltInMetadata.Memory.Handler.class);
-    this.measureHandler =
-        provider.handler(BuiltInMetadata.Measure.Handler.class);
-    this.nonCumulativeCostHandler =
-        provider.handler(BuiltInMetadata.NonCumulativeCost.Handler.class);
+    this.measureHandler = provider.handler(BuiltInMetadata.Measure.Handler.class);
+    this.nonCumulativeCostHandler = provider.handler(BuiltInMetadata.NonCumulativeCost.Handler.class);
     this.parallelismHandler = provider.handler(BuiltInMetadata.Parallelism.Handler.class);
-    this.percentageOriginalRowsHandler =
-        provider.handler(BuiltInMetadata.PercentageOriginalRows.Handler.class);
+    this.percentageOriginalRowsHandler = provider.handler(BuiltInMetadata.PercentageOriginalRows.Handler.class);
     this.populationSizeHandler = provider.handler(BuiltInMetadata.PopulationSize.Handler.class);
     this.predicatesHandler = provider.handler(BuiltInMetadata.Predicates.Handler.class);
     this.allPredicatesHandler = provider.handler(BuiltInMetadata.AllPredicates.Handler.class);
@@ -230,11 +232,17 @@ public class RelMetadataQuery extends RelMetadataQueryBase {
     this.lowerBoundCostHandler = provider.handler(BuiltInMetadata.LowerBoundCost.Handler.class);
   }
 
-  /** Creates and initializes the instance that will serve as a prototype for
-   * all other instances in the Janino case. */
+  /**
+   * 创建 `RelMetadataQuery` 实例，该实例作为 Janino 动态编译生成的其他实例的原型。
+   *
+   * <p>该构造方法不会绑定 `MetadataHandlerProvider`，而是为所有的处理器创建一个默认的初始实例，
+   * 这些处理器会在后续的 `revise()` 方法调用中进行动态替换。
+   */
   @SuppressWarnings("deprecation")
   private RelMetadataQuery(@SuppressWarnings("unused") boolean dummy) {
     super(null);
+
+    // 初始化所有元数据查询处理器为默认的初始处理器
     this.collationHandler = initialHandler(BuiltInMetadata.Collation.Handler.class);
     this.columnOriginHandler = initialHandler(BuiltInMetadata.ColumnOrigin.Handler.class);
     this.expressionLineageHandler = initialHandler(BuiltInMetadata.ExpressionLineage.Handler.class);
@@ -250,8 +258,7 @@ public class RelMetadataQuery extends RelMetadataQueryBase {
     this.measureHandler = initialHandler(BuiltInMetadata.Measure.Handler.class);
     this.nonCumulativeCostHandler = initialHandler(BuiltInMetadata.NonCumulativeCost.Handler.class);
     this.parallelismHandler = initialHandler(BuiltInMetadata.Parallelism.Handler.class);
-    this.percentageOriginalRowsHandler =
-        initialHandler(BuiltInMetadata.PercentageOriginalRows.Handler.class);
+    this.percentageOriginalRowsHandler = initialHandler(BuiltInMetadata.PercentageOriginalRows.Handler.class);
     this.populationSizeHandler = initialHandler(BuiltInMetadata.PopulationSize.Handler.class);
     this.predicatesHandler = initialHandler(BuiltInMetadata.Predicates.Handler.class);
     this.allPredicatesHandler = initialHandler(BuiltInMetadata.AllPredicates.Handler.class);
@@ -263,10 +270,18 @@ public class RelMetadataQuery extends RelMetadataQueryBase {
     this.lowerBoundCostHandler = initialHandler(BuiltInMetadata.LowerBoundCost.Handler.class);
   }
 
+  /**
+   * 创建 `RelMetadataQuery` 的实例，并从现有的 `prototype` 复制所有处理器实例。
+   *
+   * @param metadataHandlerProvider 提供元数据处理器的对象
+   * @param prototype 现有的 `RelMetadataQuery` 实例，作为新实例的原型
+   */
   private RelMetadataQuery(
       MetadataHandlerProvider metadataHandlerProvider,
       RelMetadataQuery prototype) {
     super(metadataHandlerProvider);
+
+    // 复制 `prototype` 的所有处理器实例
     this.collationHandler = prototype.collationHandler;
     this.columnOriginHandler = prototype.columnOriginHandler;
     this.expressionLineageHandler = prototype.expressionLineageHandler;
@@ -294,22 +309,27 @@ public class RelMetadataQuery extends RelMetadataQueryBase {
     this.lowerBoundCostHandler = prototype.lowerBoundCostHandler;
   }
 
-  //~ Methods ----------------------------------------------------------------
+// ------------------------------------------------------------------
 
   /**
-   * Returns an instance of RelMetadataQuery. It ensures that cycles do not
-   * occur while computing metadata.
+   * 获取 `RelMetadataQuery` 的新实例，确保在计算元数据时不会发生循环调用。
+   *
+   * <p>此方法用于创建新的 `RelMetadataQuery` 实例，并确保不会产生元数据查询的递归循环问题。
+   * 通过 `THREAD_PROVIDERS` 线程局部变量维护的 `JaninoRelMetadataProvider` 进行初始化。
+   *
+   * @return 一个新的 `RelMetadataQuery` 实例
    */
   public static RelMetadataQuery instance() {
     return new RelMetadataQuery();
   }
 
   /**
-   * Returns the
-   * {@link BuiltInMetadata.NodeTypes#getNodeTypes()}
-   * statistic.
+   * 获取 `BuiltInMetadata.NodeTypes#getNodeTypes()` 统计信息。
    *
-   * @param rel the relational expression
+   * <p>该方法查询某个 `RelNode` 在执行计划中的具体类型。
+   *
+   * @param rel 需要查询的关系表达式
+   * @return 返回 `Multimap<Class<? extends RelNode>, RelNode>`，表示关系表达式的类型分布
    */
   public @Nullable Multimap<Class<? extends RelNode>, RelNode> getNodeTypes(RelNode rel) {
     for (;;) {
@@ -323,14 +343,15 @@ public class RelMetadataQuery extends RelMetadataQueryBase {
     }
   }
 
+
   /**
-   * Returns the
-   * {@link BuiltInMetadata.RowCount#getRowCount()}
-   * statistic.
+   * 获取关系表达式的估算行数。
    *
-   * @param rel the relational expression
-   * @return estimated row count, or null if no reliable estimate can be
-   * determined
+   * <p>该方法会调用 `rowCountHandler` 处理器来计算 `RelNode` 的行数，并确保返回有效的结果。
+   * 如果没有可用的处理器，会动态更新 `rowCountHandler` 处理器以适配新情况。
+   *
+   * @param rel 需要计算行数的关系表达式
+   * @return 估算的行数，如果无法估算，则返回 `null`
    */
   public /* @Nullable: CALCITE-4263 */ Double getRowCount(RelNode rel) {
     for (;;) {
@@ -344,12 +365,12 @@ public class RelMetadataQuery extends RelMetadataQueryBase {
   }
 
   /**
-   * Returns the
-   * {@link BuiltInMetadata.MaxRowCount#getMaxRowCount()}
-   * statistic.
+   * 获取关系表达式的最大行数。
    *
-   * @param rel the relational expression
-   * @return max row count
+   * <p>该方法通过 `maxRowCountHandler` 处理器获取 `RelNode` 的最大可能行数。
+   *
+   * @param rel 需要计算最大行数的关系表达式
+   * @return 最大可能的行数，如果无法估算，则返回 `null`
    */
   public @Nullable Double getMaxRowCount(RelNode rel) {
     for (;;) {
@@ -362,12 +383,12 @@ public class RelMetadataQuery extends RelMetadataQueryBase {
   }
 
   /**
-   * Returns the
-   * {@link BuiltInMetadata.MinRowCount#getMinRowCount()}
-   * statistic.
+   * 获取关系表达式的最小行数。
    *
-   * @param rel the relational expression
-   * @return min row count
+   * <p>该方法通过 `minRowCountHandler` 处理器获取 `RelNode` 的最小可能行数。
+   *
+   * @param rel 需要计算最小行数的关系表达式
+   * @return 最小可能的行数，如果无法估算，则返回 `null`
    */
   public @Nullable Double getMinRowCount(RelNode rel) {
     for (;;) {
@@ -380,11 +401,14 @@ public class RelMetadataQuery extends RelMetadataQueryBase {
   }
 
   /**
-   * Returns whether the return rows of a given relational expression are empty.
+   * 判断关系表达式的返回行是否为空。
    *
-   * @param relNode the relational expression
-   * @return true or false depending on whether the return rows are empty, or
-   * null if not enough information is available to make that determination
+   * <p>如果 `minRowCount` 大于 0，则表示不为空，返回 `false`。
+   * 如果 `maxRowCount` 小于等于 0，则表示为空，返回 `true`。
+   * 如果无法确定，则返回 `null`。
+   *
+   * @param relNode 需要检查的关系表达式
+   * @return `true` 表示为空，`false` 表示不为空，`null` 表示无法确定
    */
   public @Nullable Boolean isEmpty(RelNode relNode) {
     Double minRowCount = getMinRowCount(relNode);
@@ -398,14 +422,14 @@ public class RelMetadataQuery extends RelMetadataQueryBase {
     return null;
   }
 
-
   /**
-   * Returns the
-   * {@link BuiltInMetadata.CumulativeCost#getCumulativeCost()}
-   * statistic.
+   * 获取关系表达式的累计执行成本。
    *
-   * @param rel the relational expression
-   * @return estimated cost, or null if no reliable estimate can be determined
+   * <p>累计成本是整个 `RelNode` 及其所有子节点的执行成本之和。
+   * 该方法会调用 `cumulativeCostHandler` 处理器计算成本，并在必要时更新处理器。
+   *
+   * @param rel 需要计算成本的关系表达式
+   * @return 累计执行成本，如果无法估算，则返回 `null`
    */
   public @Nullable RelOptCost getCumulativeCost(RelNode rel) {
     for (;;) {
@@ -418,12 +442,13 @@ public class RelMetadataQuery extends RelMetadataQueryBase {
   }
 
   /**
-   * Returns the
-   * {@link BuiltInMetadata.NonCumulativeCost#getNonCumulativeCost()}
-   * statistic.
+   * 获取关系表达式的非累计执行成本。
    *
-   * @param rel the relational expression
-   * @return estimated cost, or null if no reliable estimate can be determined
+   * <p>非累计成本是 `RelNode` 自身的计算成本，不包括子节点的成本。
+   * 该方法会调用 `nonCumulativeCostHandler` 处理器计算成本，并在必要时更新处理器。
+   *
+   * @param rel 需要计算成本的关系表达式
+   * @return 非累计执行成本，如果无法估算，则返回 `null`
    */
   public @Nullable RelOptCost getNonCumulativeCost(RelNode rel) {
     for (;;) {
@@ -436,37 +461,32 @@ public class RelMetadataQuery extends RelMetadataQueryBase {
   }
 
   /**
-   * Returns the
-   * {@link BuiltInMetadata.PercentageOriginalRows#getPercentageOriginalRows()}
-   * statistic.
+   * 获取关系表达式保留的原始行比例。
    *
-   * @param rel the relational expression
-   * @return estimated percentage (between 0.0 and 1.0), or null if no
-   * reliable estimate can be determined
+   * <p>该方法会返回 `RelNode` 在执行过程中保留的原始数据比例，范围在 `0.0` 到 `1.0` 之间。
+   *
+   * @param rel 需要计算原始行比例的关系表达式
+   * @return 估算的原始行比例，如果无法估算，则返回 `null`
    */
   public @Nullable Double getPercentageOriginalRows(RelNode rel) {
     for (;;) {
       try {
-        Double result =
-            percentageOriginalRowsHandler.getPercentageOriginalRows(rel, this);
+        Double result = percentageOriginalRowsHandler.getPercentageOriginalRows(rel, this);
         return RelMdUtil.validatePercentage(result);
       } catch (MetadataHandlerProvider.NoHandler e) {
-        percentageOriginalRowsHandler =
-            revise(BuiltInMetadata.PercentageOriginalRows.Handler.class);
+        percentageOriginalRowsHandler = revise(BuiltInMetadata.PercentageOriginalRows.Handler.class);
       }
     }
   }
 
   /**
-   * Returns the
-   * {@link BuiltInMetadata.ColumnOrigin#getColumnOrigins(int)}
-   * statistic.
+   * 获取关系表达式某列的来源信息。
    *
-   * @param rel           the relational expression
-   * @param column 0-based ordinal for output column of interest
-   * @return set of origin columns, or null if this information cannot be
-   * determined (whereas empty set indicates definitely no origin columns at
-   * all)
+   * <p>返回该列的所有可能来源表及字段信息。多个来源可能来自 `UNION` 或 `JOIN` 等操作。
+   *
+   * @param rel 需要查询的关系表达式
+   * @param column 列索引（从 0 开始）
+   * @return 该列的来源集合，如果无法确定，则返回 `null`
    */
   public @Nullable Set<RelColumnOrigin> getColumnOrigins(RelNode rel, int column) {
     for (;;) {
@@ -479,27 +499,33 @@ public class RelMetadataQuery extends RelMetadataQueryBase {
   }
 
   /**
-   * Determines the origin of a column.
+   * 获取关系表达式的唯一表来源（如果适用）。
    *
-   * @see #getColumnOrigins(org.apache.calcite.rel.RelNode, int)
+   * <p>如果 `RelNode` 直接映射到一个基础表（可能带有筛选和投影），则返回该表。
+   * 否则，返回 `null`。
    *
-   * @param rel the RelNode of the column
-   * @param column the offset of the column whose origin we are trying to
-   * determine
-   *
-   * @return the origin of a column
+   * @param rel 需要查询的关系表达式
+   * @return `RelOptTable` 实例，如果 `RelNode` 不是简单表，则返回 `null`
    */
-  public @Nullable RelColumnOrigin getColumnOrigin(RelNode rel, int column) {
-    final Set<RelColumnOrigin> origins = getColumnOrigins(rel, column);
-    if (origins == null || origins.size() != 1) {
+  public @Nullable RelOptTable getTableOrigin(RelNode rel) {
+    if (rel.getRowType().getFieldCount() == 0) {
       return null;
     }
-    final RelColumnOrigin origin = Iterables.getOnlyElement(origins);
-    return origin;
+    final Set<RelColumnOrigin> colOrigins = getColumnOrigins(rel, 0);
+    if (colOrigins == null || colOrigins.isEmpty()) {
+      return null;
+    }
+    return colOrigins.iterator().next().getOriginTable();
   }
 
   /**
-   * Determines the origin of a column.
+   * 获取关系表达式的表达式血缘信息。
+   *
+   * <p>返回 `RexNode` 表达式的来源信息，帮助追踪字段计算过程中的依赖关系。
+   *
+   * @param rel 需要查询的关系表达式
+   * @param expression 需要追踪血缘的表达式
+   * @return 该表达式的血缘信息，如果无法确定，则返回 `null`
    */
   public @Nullable Set<RexNode> getExpressionLineage(RelNode rel, RexNode expression) {
     for (;;) {
@@ -512,7 +538,12 @@ public class RelMetadataQuery extends RelMetadataQueryBase {
   }
 
   /**
-   * Determines the tables used by a plan.
+   * 获取 `RelNode` 计划涉及的表集合。
+   *
+   * <p>此方法返回 `RelNode` 计划中所有涉及的基础表（`TableScan` 操作）。
+   *
+   * @param rel 需要查询的关系表达式
+   * @return `RelTableRef` 表集合，如果无法确定，则返回 `null`
    */
   public @Nullable Set<RelTableRef> getTableReferences(RelNode rel) {
     for (;;) {
@@ -524,27 +555,6 @@ public class RelMetadataQuery extends RelMetadataQueryBase {
     }
   }
 
-  /**
-   * Determines the origin of a {@link RelNode}, provided it maps to a single
-   * table, optionally with filtering and projection.
-   *
-   * @param rel the RelNode
-   *
-   * @return the table, if the RelNode is a simple table; otherwise null
-   */
-  public @Nullable RelOptTable getTableOrigin(RelNode rel) {
-    // Determine the simple origin of the first column in the
-    // RelNode.  If it's simple, then that means that the underlying
-    // table is also simple, even if the column itself is derived.
-    if (rel.getRowType().getFieldCount() == 0) {
-      return null;
-    }
-    final Set<RelColumnOrigin> colOrigins = getColumnOrigins(rel, 0);
-    if (colOrigins == null || colOrigins.isEmpty()) {
-      return null;
-    }
-    return colOrigins.iterator().next().getOriginTable();
-  }
 
   /**
    * Returns the
@@ -569,32 +579,27 @@ public class RelMetadataQuery extends RelMetadataQueryBase {
   }
 
   /**
-   * Returns the
-   * {@link BuiltInMetadata.UniqueKeys#getUniqueKeys(boolean)}
-   * statistic.
+   * 获取关系表达式的唯一键集合。
    *
-   * @param rel the relational expression
-   * @return set of keys, or null if this information cannot be determined
-   * (whereas empty set indicates definitely no keys at all)
+   * <p>该方法调用 `getUniqueKeys(rel, false)`，默认情况下不忽略 `NULL` 值。
+   *
+   * @param rel 需要查询的关系表达式
+   * @return 唯一键的集合，如果无法确定，则返回 `null`
    */
   public @Nullable Set<ImmutableBitSet> getUniqueKeys(RelNode rel) {
     return getUniqueKeys(rel, false);
   }
 
   /**
-   * Returns the
-   * {@link BuiltInMetadata.UniqueKeys#getUniqueKeys(boolean)}
-   * statistic.
+   * 获取关系表达式的唯一键集合。
    *
-   * @param rel         the relational expression
-   * @param ignoreNulls if true, ignore null values when determining
-   *                    whether the keys are unique
+   * <p>唯一键是一组列，这组列的组合可以唯一标识一行。
    *
-   * @return set of keys, or null if this information cannot be determined
-   * (whereas empty set indicates definitely no keys at all)
+   * @param rel         需要查询的关系表达式
+   * @param ignoreNulls 如果为 `true`，则忽略 `NULL` 值来判断唯一性
+   * @return 唯一键的集合，如果无法确定，则返回 `null`
    */
-  public @Nullable Set<ImmutableBitSet> getUniqueKeys(RelNode rel,
-      boolean ignoreNulls) {
+  public @Nullable Set<ImmutableBitSet> getUniqueKeys(RelNode rel, boolean ignoreNulls) {
     for (;;) {
       try {
         return uniqueKeysHandler.getUniqueKeys(rel, this, ignoreNulls);
@@ -605,82 +610,63 @@ public class RelMetadataQuery extends RelMetadataQueryBase {
   }
 
   /**
-   * Returns whether the rows of a given relational expression are distinct,
-   * optionally ignoring NULL values.
+   * 判断关系表达式的行是否唯一（可选忽略 `NULL` 值）。
    *
-   * <p>This is derived by applying the
-   * {@link BuiltInMetadata.ColumnUniqueness#areColumnsUnique(org.apache.calcite.util.ImmutableBitSet, boolean)}
-   * statistic over all columns. If
-   * {@link BuiltInMetadata.MaxRowCount#getMaxRowCount()}
-   * is less than or equal to one, we shortcut the process and declare the rows
-   * unique.
+   * <p>如果 `MaxRowCount` 小于等于 `1`，则直接返回 `true`，因为最多只有一行数据，必然是唯一的。
+   * 否则，调用 `areColumnsUnique` 方法检查所有列是否唯一。
    *
-   * @param rel     the relational expression
-   * @param ignoreNulls if true, ignore null values when determining column
-   *                    uniqueness
-   *
-   * @return whether the rows are unique, or
-   * null if not enough information is available to make that determination
+   * @param rel         需要查询的关系表达式
+   * @param ignoreNulls 是否忽略 `NULL` 值来判断唯一性
+   * @return `true` 表示所有行都是唯一的，`false` 表示有重复行，`null` 表示无法确定
    */
   public @Nullable Boolean areRowsUnique(RelNode rel, boolean ignoreNulls) {
     Double maxRowCount = this.getMaxRowCount(rel);
     if (maxRowCount != null && maxRowCount <= 1D) {
       return true;
     }
-    final ImmutableBitSet columns =
-        ImmutableBitSet.range(rel.getRowType().getFieldCount());
+    final ImmutableBitSet columns = ImmutableBitSet.range(rel.getRowType().getFieldCount());
     return areColumnsUnique(rel, columns, ignoreNulls);
   }
 
   /**
-   * Returns whether the rows of a given relational expression are distinct.
+   * 判断关系表达式的行是否唯一（默认不忽略 `NULL` 值）。
    *
-   * <p>Derived by calling {@link #areRowsUnique(RelNode, boolean)}.
+   * <p>该方法调用 `areRowsUnique(rel, false)`，默认情况下不忽略 `NULL` 值。
    *
-   * @param rel     the relational expression
-   *
-   * @return whether the rows are unique, or
-   * null if not enough information is available to make that determination
+   * @param rel 需要查询的关系表达式
+   * @return `true` 表示所有行都是唯一的，`false` 表示有重复行，`null` 表示无法确定
    */
   public @Nullable Boolean areRowsUnique(RelNode rel) {
     return areRowsUnique(rel, false);
   }
 
   /**
-   * Returns the
-   * {@link BuiltInMetadata.ColumnUniqueness#areColumnsUnique(ImmutableBitSet, boolean)}
-   * statistic.
+   * 判断关系表达式的某些列是否唯一。
    *
-   * @param rel     the relational expression
-   * @param columns column mask representing the subset of columns for which
-   *                uniqueness will be determined
+   * <p>该方法调用 `areColumnsUnique(rel, columns, false)`，默认情况下不忽略 `NULL` 值。
    *
-   * @return true or false depending on whether the columns are unique, or
-   * null if not enough information is available to make that determination
+   * @param rel     需要查询的关系表达式
+   * @param columns 需要检查唯一性的列索引集合
+   * @return `true` 表示这些列是唯一的，`false` 表示有重复值，`null` 表示无法确定
    */
   public @Nullable Boolean areColumnsUnique(RelNode rel, ImmutableBitSet columns) {
     return areColumnsUnique(rel, columns, false);
   }
 
   /**
-   * Returns the
-   * {@link BuiltInMetadata.ColumnUniqueness#areColumnsUnique(ImmutableBitSet, boolean)}
-   * statistic.
+   * 判断关系表达式的某些列是否唯一（可选忽略 `NULL` 值）。
    *
-   * @param rel         the relational expression
-   * @param columns     column mask representing the subset of columns for which
-   *                    uniqueness will be determined
-   * @param ignoreNulls if true, ignore null values when determining column
-   *                    uniqueness
-   * @return true or false depending on whether the columns are unique, or
-   * null if not enough information is available to make that determination
+   * <p>如果 `columns` 的组合可以唯一标识 `rel` 中的一行，则返回 `true`，否则返回 `false`。
+   *
+   * @param rel         需要查询的关系表达式
+   * @param columns     需要检查唯一性的列索引集合
+   * @param ignoreNulls 是否忽略 `NULL` 值来判断唯一性
+   * @return `true` 表示这些列是唯一的，`false` 表示有重复值，`null` 表示无法确定
    */
-  public @Nullable Boolean areColumnsUnique(RelNode rel, ImmutableBitSet columns,
-      boolean ignoreNulls) {
+  public @Nullable Boolean areColumnsUnique(RelNode rel, ImmutableBitSet columns, boolean ignoreNulls) {
     for (;;) {
       try {
-        return columnUniquenessHandler.areColumnsUnique(rel, this, columns,
-            ignoreNulls);
+        return columnUniquenessHandler.areColumnsUnique(rel, this, columns, ignoreNulls);
       } catch (MetadataHandlerProvider.NoHandler e) {
         columnUniquenessHandler = revise(BuiltInMetadata.ColumnUniqueness.Handler.class);
       }
@@ -688,13 +674,12 @@ public class RelMetadataQuery extends RelMetadataQueryBase {
   }
 
   /**
-   * Returns the
-   * {@link BuiltInMetadata.Collation#collations()}
-   * statistic.
+   * 获取关系表达式的排序信息（Collation）。
    *
-   * @param rel         the relational expression
-   * @return List of sorted column combinations, or
-   * null if not enough information is available to make that determination
+   * <p>Collation 描述了 `RelNode` 的排序方式，例如某些列是否已经按照升序或降序排列。
+   *
+   * @param rel 需要查询的关系表达式
+   * @return 排序信息列表，如果无法确定，则返回 `null`
    */
   public @Nullable ImmutableList<RelCollation> collations(RelNode rel) {
     for (;;) {
@@ -707,19 +692,20 @@ public class RelMetadataQuery extends RelMetadataQueryBase {
   }
 
   /**
-   * Returns the
-   * {@link BuiltInMetadata.Distribution#distribution()}
-   * statistic.
+   * 获取关系表达式的数据分布方式（Distribution）。
    *
-   * @param rel         the relational expression
-   * @return List of sorted column combinations, or
-   * null if not enough information is available to make that determination
+   * <p>数据分布描述了 `RelNode` 结果在计算节点上的分布方式，例如：
+   * - 复制（REPLICATED）：数据在所有节点上均可用
+   * - 哈希分布（HASH）：数据根据哈希函数分布到不同节点
+   * - 分区（RANGE）：数据按照范围进行分区
+   *
+   * @param rel 需要查询的关系表达式
+   * @return 数据分布信息，如果无法确定，则返回 `RelDistributions.ANY`
    */
   public RelDistribution distribution(RelNode rel) {
     for (;;) {
       try {
         RelDistribution distribution = distributionHandler.distribution(rel, this);
-        //noinspection ConstantConditions
         if (distribution == null) {
           return RelDistributions.ANY;
         }
@@ -730,24 +716,21 @@ public class RelMetadataQuery extends RelMetadataQueryBase {
     }
   }
 
+
   /**
-   * Returns the
-   * {@link BuiltInMetadata.PopulationSize#getPopulationSize(ImmutableBitSet)}
-   * statistic.
+   * 获取关系表达式中某些列的去重行数（基数）。
    *
-   * @param rel      the relational expression
-   * @param groupKey column mask representing the subset of columns for which
-   *                 the row count will be determined
-   * @return distinct row count for the given groupKey, or null if no reliable
-   * estimate can be determined
+   * <p>基数（Population Size）表示指定列集合的不同值的数量，
+   * 也就是如果对 `groupKey` 进行 `GROUP BY` 操作，理论上会有多少组。
    *
+   * @param rel      需要查询的关系表达式
+   * @param groupKey 需要计算基数的列集合（使用 `ImmutableBitSet` 表示）
+   * @return 估算的去重行数（基数），如果无法确定，则返回 `null`
    */
-  public @Nullable Double getPopulationSize(RelNode rel,
-      ImmutableBitSet groupKey) {
+  public @Nullable Double getPopulationSize(RelNode rel, ImmutableBitSet groupKey) {
     for (;;) {
       try {
-        Double result =
-            populationSizeHandler.getPopulationSize(rel, this, groupKey);
+        Double result = populationSizeHandler.getPopulationSize(rel, this, groupKey);
         return RelMdUtil.validateResult(result);
       } catch (MetadataHandlerProvider.NoHandler e) {
         populationSizeHandler = revise(BuiltInMetadata.PopulationSize.Handler.class);
@@ -756,13 +739,13 @@ public class RelMetadataQuery extends RelMetadataQueryBase {
   }
 
   /**
-   * Returns the
-   * {@link BuiltInMetadata.Size#averageRowSize()}
-   * statistic.
+   * 获取关系表达式的平均行大小（以字节为单位）。
    *
-   * @param rel      the relational expression
-   * @return average size of a row, in bytes, or null if not known
-     */
+   * <p>行大小用于估算数据存储和内存使用情况，通常由多个列的大小累加计算得到。
+   *
+   * @param rel 需要查询的关系表达式
+   * @return 估算的行大小（字节），如果无法确定，则返回 `null`
+   */
   public @Nullable Double getAverageRowSize(RelNode rel) {
     for (;;) {
       try {
@@ -774,14 +757,13 @@ public class RelMetadataQuery extends RelMetadataQueryBase {
   }
 
   /**
-   * Returns the
-   * {@link BuiltInMetadata.Size#averageColumnSizes()}
-   * statistic.
+   * 获取关系表达式中各列的平均大小（以字节为单位）。
    *
-   * @param rel      the relational expression
-   * @return a list containing, for each column, the average size of a column
-   * value, in bytes. Each value or the entire list may be null if the
-   * metadata is not available
+   * <p>该方法返回一个列表，每个元素表示该列的平均大小。
+   * 通常用于估算存储需求或查询优化（如选择索引）。
+   *
+   * @param rel 需要查询的关系表达式
+   * @return 每列的平均大小（字节）的列表，如果无法确定，则返回 `null`
    */
   public @Nullable List<@Nullable Double> getAverageColumnSizes(RelNode rel) {
     for (;;) {
@@ -793,8 +775,15 @@ public class RelMetadataQuery extends RelMetadataQueryBase {
     }
   }
 
-  /** As {@link #getAverageColumnSizes(org.apache.calcite.rel.RelNode)} but
-   * never returns a null list, only ever a list of nulls. */
+  /**
+   * 获取关系表达式中各列的平均大小（以字节为单位），保证返回非空列表。
+   *
+   * <p>如果 `getAverageColumnSizes(rel)` 返回 `null`，则返回一个全 `null` 的列表，
+   * 确保不会因为 `null` 结果而影响后续计算逻辑。
+   *
+   * @param rel 需要查询的关系表达式
+   * @return 每列的平均大小（字节）的列表，如果无法确定，则返回一个全 `null` 的列表
+   */
   public List<@Nullable Double> getAverageColumnSizesNotNull(RelNode rel) {
     final @Nullable List<@Nullable Double> averageColumnSizes = getAverageColumnSizes(rel);
     return averageColumnSizes == null
@@ -803,14 +792,13 @@ public class RelMetadataQuery extends RelMetadataQueryBase {
   }
 
   /**
-   * Returns the
-   * {@link BuiltInMetadata.Parallelism#isPhaseTransition()}
-   * statistic.
+   * 判断某个 `RelNode` 是否是阶段转换（Phase Transition）。
    *
-   * @param rel      the relational expression
-   * @return whether each physical operator implementing this relational
-   * expression belongs to a different process than its inputs, or null if not
-   * known
+   * <p>阶段转换（Phase Transition）通常表示计算过程中的关键变换点，
+   * 例如 `Exchange` 算子引起的数据重新分布，或者某些需要全局同步的操作。
+   *
+   * @param rel 需要查询的关系表达式
+   * @return `true` 表示是阶段转换，`false` 表示不是，`null` 表示无法确定
    */
   public @Nullable Boolean isPhaseTransition(RelNode rel) {
     for (;;) {
@@ -823,12 +811,13 @@ public class RelMetadataQuery extends RelMetadataQueryBase {
   }
 
   /**
-   * Returns the
-   * {@link BuiltInMetadata.Parallelism#splitCount()}
-   * statistic.
+   * 获取数据的分片数量（Split Count）。
    *
-   * @param rel      the relational expression
-   * @return the number of distinct splits of the data, or null if not known
+   * <p>数据分片（Split Count）表示查询执行时，数据被分割成多少个独立的子集，
+   * 例如并行计算任务的分片数量。这在优化并行计算时至关重要。
+   *
+   * @param rel 需要查询的关系表达式
+   * @return 数据分片数量，如果无法确定，则返回 `null`
    */
   public @Nullable Integer splitCount(RelNode rel) {
     for (;;) {
@@ -841,14 +830,13 @@ public class RelMetadataQuery extends RelMetadataQueryBase {
   }
 
   /**
-   * Returns the
-   * {@link BuiltInMetadata.Memory#memory()}
-   * statistic.
+   * 获取某个关系表达式的内存使用估算值（以字节为单位）。
    *
-   * @param rel      the relational expression
-   * @return the expected amount of memory, in bytes, required by a physical
-   * operator implementing this relational expression, across all splits,
-   * or null if not known
+   * <p>该方法估算 `rel` 计算时可能使用的内存大小，通常用于查询优化器决策，
+   * 例如是否选择基于内存的执行计划或是否需要溢写到磁盘。
+   *
+   * @param rel 需要查询的关系表达式
+   * @return 估算的内存使用量（字节），如果无法确定，则返回 `null`
    */
   public @Nullable Double memory(RelNode rel) {
     for (;;) {
@@ -860,15 +848,15 @@ public class RelMetadataQuery extends RelMetadataQueryBase {
     }
   }
 
+
   /**
-   * Returns the
-   * {@link BuiltInMetadata.Memory#cumulativeMemoryWithinPhase()}
-   * statistic.
+   * 获取当前关系表达式（RelNode）及其所在的计算阶段（phase）中所有操作符的累计内存使用量（以字节为单位）。
    *
-   * @param rel      the relational expression
-   * @return the cumulative amount of memory, in bytes, required by the
-   * physical operator implementing this relational expression, and all other
-   * operators within the same phase, across all splits, or null if not known
+   * <p>该方法会遍历所有分裂（split），计算整个阶段内的累计内存需求，通常适用于计算任务中需要评估
+   * 内存占用情况的场景，例如流处理中的状态存储或批处理中的数据缓存需求。</p>
+   *
+   * @param rel 关系表达式（RelNode）
+   * @return 该表达式及其阶段内所有操作符的总内存需求（字节单位），如果未知则返回 null
    */
   public @Nullable Double cumulativeMemoryWithinPhase(RelNode rel) {
     for (;;) {
@@ -881,14 +869,15 @@ public class RelMetadataQuery extends RelMetadataQueryBase {
   }
 
   /**
-   * Returns the
-   * {@link BuiltInMetadata.Memory#cumulativeMemoryWithinPhaseSplit()}
-   * statistic.
+   * 获取当前关系表达式（RelNode）及其阶段内所有操作符在每个分裂（split）中的累计内存需求（字节单位）。
    *
-   * @param rel      the relational expression
-   * @return the expected cumulative amount of memory, in bytes, required by
-   * the physical operator implementing this relational expression, and all
-   * operators within the same phase, within each split, or null if not known
+   * <p>基本计算公式如下：
+   * <blockquote> cumulativeMemoryWithinPhaseSplit = cumulativeMemoryWithinPhase / Parallelism.splitCount() </blockquote>
+   *
+   * 该方法适用于计算任务被划分为多个并行执行的子任务（例如分区处理），用于估算每个分区的内存使用情况。
+   *
+   * @param rel 关系表达式（RelNode）
+   * @return 该表达式及其阶段内所有操作符在每个分裂中的预计累计内存需求（字节单位），如果未知则返回 null
    */
   public @Nullable Double cumulativeMemoryWithinPhaseSplit(RelNode rel) {
     for (;;) {
@@ -901,13 +890,13 @@ public class RelMetadataQuery extends RelMetadataQueryBase {
   }
 
   /**
-   * Returns the
-   * {@link BuiltInMetadata.Measure#isMeasure(int)}
-   * statistic.
+   * 判断某个列是否为度量值（Measure）。
    *
-   * @param rel      The relational expression
-   * @param column   Output column of the relational expression
-   * @return whether column is a measure
+   * <p>度量值通常用于聚合计算，例如 SUM、AVG 等，区分于维度列（Dimension）。</p>
+   *
+   * @param rel 关系表达式（RelNode）
+   * @param column 需要检查的列索引（基于 0）
+   * @return 如果该列是度量值，则返回 true，否则返回 false；如果无法确定，则返回 null
    */
   public @Nullable Boolean isMeasure(RelNode rel, int column) {
     for (;;) {
@@ -920,17 +909,17 @@ public class RelMetadataQuery extends RelMetadataQueryBase {
   }
 
   /**
-   * Returns the
-   * {@link BuiltInMetadata.Measure#expand(int, BuiltInMetadata.Measure.Context)}
-   * statistic.
+   * 获取某个度量列在给定上下文中的具体计算表达式。
    *
-   * @param rel      The relational expression
-   * @param column   Output column of the relational expression
-   * @param context  Context of the use of the measure
-   * @return expression for measure in the context
+   * <p>通常用于查询优化器对聚合查询进行重写，例如在多维分析（OLAP）场景下，通过度量展开（Measure Expansion）
+   * 来优化查询执行计划。</p>
+   *
+   * @param rel 关系表达式（RelNode）
+   * @param column 需要展开的度量列索引（基于 0）
+   * @param context 度量展开的计算上下文
+   * @return 该列在当前上下文中的计算表达式
    */
-  public RexNode expand(RelNode rel, int column,
-      BuiltInMetadata.Measure.Context context) {
+  public RexNode expand(RelNode rel, int column, BuiltInMetadata.Measure.Context context) {
     for (;;) {
       try {
         return measureHandler.expand(rel, this, column, context);
@@ -941,25 +930,20 @@ public class RelMetadataQuery extends RelMetadataQueryBase {
   }
 
   /**
-   * Returns the
-   * {@link BuiltInMetadata.DistinctRowCount#getDistinctRowCount(ImmutableBitSet, RexNode)}
-   * statistic.
+   * 估算某个 GROUP BY 语句在特定列集上的去重行数（Distinct Row Count）。
    *
-   * @param rel       the relational expression
-   * @param groupKey  column mask representing group by columns
-   * @param predicate pre-filtered predicates
-   * @return distinct row count for groupKey, filtered by predicate, or null
-   * if no reliable estimate can be determined
+   * <p>例如，在 SQL 语句 `SELECT COUNT(DISTINCT col1) FROM table` 中，本方法可以用于估算
+   * `col1` 的不同值的数量（即去重后的行数）。</p>
+   *
+   * @param rel 关系表达式（RelNode）
+   * @param groupKey 需要进行去重统计的列集合（ImmutableBitSet）
+   * @param predicate 预过滤的谓词（RexNode），用于在去重前应用某些筛选条件
+   * @return 该列集合去重后的行数估算值，如果无法估算则返回 null
    */
-  public @Nullable Double getDistinctRowCount(
-      RelNode rel,
-      ImmutableBitSet groupKey,
-      @Nullable RexNode predicate) {
+  public @Nullable Double getDistinctRowCount(RelNode rel, ImmutableBitSet groupKey, @Nullable RexNode predicate) {
     for (;;) {
       try {
-        Double result =
-            distinctRowCountHandler.getDistinctRowCount(rel, this, groupKey,
-                predicate);
+        Double result = distinctRowCountHandler.getDistinctRowCount(rel, this, groupKey, predicate);
         return RelMdUtil.validateResult(result);
       } catch (MetadataHandlerProvider.NoHandler e) {
         distinctRowCountHandler = revise(BuiltInMetadata.DistinctRowCount.Handler.class);
@@ -968,12 +952,13 @@ public class RelMetadataQuery extends RelMetadataQueryBase {
   }
 
   /**
-   * Returns the
-   * {@link BuiltInMetadata.Predicates#getPredicates()}
-   * statistic.
+   * 获取可以提升（pulled up）的谓词（Predicates）。
    *
-   * @param rel the relational expression
-   * @return Predicates that can be pulled above this RelNode
+   * <p>谓词提升（Predicate Pull-Up）是一种优化技术，能够将某些筛选条件上推，以减少数据处理的规模，
+   * 从而提高查询效率。</p>
+   *
+   * @param rel 关系表达式（RelNode）
+   * @return 该关系表达式可以提升的谓词列表（RelOptPredicateList）
    */
   public RelOptPredicateList getPulledUpPredicates(RelNode rel) {
     for (;;) {
@@ -987,12 +972,13 @@ public class RelMetadataQuery extends RelMetadataQueryBase {
   }
 
   /**
-   * Returns the
-   * {@link BuiltInMetadata.AllPredicates#getAllPredicates()}
-   * statistic.
+   * 获取关系表达式及其子节点中的所有谓词（All Predicates）。
    *
-   * @param rel the relational expression
-   * @return All predicates within and below this RelNode
+   * <p>该方法比 {@code getPulledUpPredicates()} 更全面，包含了当前节点及其子节点中的所有谓词信息，
+   * 适用于需要全局优化或查询改写的场景。</p>
+   *
+   * @param rel 关系表达式（RelNode）
+   * @return 该关系表达式及其子节点中的所有谓词信息（RelOptPredicateList），如果无法确定则返回 null
    */
   public @Nullable RelOptPredicateList getAllPredicates(RelNode rel) {
     for (;;) {
@@ -1005,21 +991,19 @@ public class RelMetadataQuery extends RelMetadataQueryBase {
   }
 
   /**
-   * Returns the
-   * {@link BuiltInMetadata.ExplainVisibility#isVisibleInExplain(SqlExplainLevel)}
-   * statistic.
+   * 判断某个关系表达式在 EXPLAIN 计划中是否可见。
    *
-   * @param rel          the relational expression
-   * @param explainLevel level of detail
-   * @return true for visible, false for invisible; if no metadata is available,
-   * defaults to true
+   * <p>在 SQL 执行计划（EXPLAIN PLAN）中，某些操作可能会被优化器隐藏，本方法用于判断某个关系表达式
+   * 是否应该在 EXPLAIN 输出中可见。</p>
+   *
+   * @param rel 关系表达式（RelNode）
+   * @param explainLevel EXPLAIN 计划的详细级别
+   * @return 如果该关系表达式应当显示在 EXPLAIN 计划中，则返回 true，否则返回 false
    */
-  public Boolean isVisibleInExplain(RelNode rel,
-      SqlExplainLevel explainLevel) {
+  public Boolean isVisibleInExplain(RelNode rel, SqlExplainLevel explainLevel) {
     for (;;) {
       try {
-        Boolean b =
-            explainVisibilityHandler.isVisibleInExplain(rel, this, explainLevel);
+        Boolean b = explainVisibilityHandler.isVisibleInExplain(rel, this, explainLevel);
         return b == null || b;
       } catch (MetadataHandlerProvider.NoHandler e) {
         explainVisibilityHandler = revise(BuiltInMetadata.ExplainVisibility.Handler.class);
@@ -1028,14 +1012,13 @@ public class RelMetadataQuery extends RelMetadataQueryBase {
   }
 
   /**
-   * Returns the
-   * {@link BuiltInMetadata.Distribution#distribution()}
-   * statistic.
+   * 获取关系表达式的物理分布信息（Distribution）。
    *
-   * @param rel the relational expression
+   * <p>数据分布（Distribution）描述了数据如何在不同计算节点之间划分，例如 Hash 分区、广播（Broadcast）
+   * 或者随机分布（Any）。</p>
    *
-   * @return description of how the rows in the relational expression are
-   * physically distributed
+   * @param rel 关系表达式（RelNode）
+   * @return 该关系表达式的数据分布描述（RelDistribution），如果未知则返回 null
    */
   public @Nullable RelDistribution getDistribution(RelNode rel) {
     for (;;) {
@@ -1048,7 +1031,13 @@ public class RelMetadataQuery extends RelMetadataQueryBase {
   }
 
   /**
-   * Returns the lower bound cost of a RelNode.
+   * 计算给定关系表达式的最低执行成本（Lower Bound Cost）。
+   *
+   * <p>下界成本用于优化器评估查询计划时的最小开销，例如最少的 I/O 或 CPU 计算量。</p>
+   *
+   * @param rel 关系表达式（RelNode）
+   * @param planner 规划器（VolcanoPlanner）
+   * @return 该关系表达式的最小执行成本（RelOptCost），如果未知则返回 null
    */
   public @Nullable RelOptCost getLowerBoundCost(RelNode rel, VolcanoPlanner planner) {
     for (;;) {
@@ -1059,4 +1048,5 @@ public class RelMetadataQuery extends RelMetadataQueryBase {
       }
     }
   }
+
 }

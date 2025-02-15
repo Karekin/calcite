@@ -27,104 +27,157 @@ import java.util.Collection;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Row expression.
+ * 行表达式（Row expression）。
  *
- * <p>Every row-expression has a type.
- * (Compare with {@link org.apache.calcite.sql.SqlNode}, which is created before
- * validation, and therefore types may not be available.)
+ * <p>每个 `RexNode`（Row EXpression Node）都代表 SQL 查询中的一个表达式节点，
+ * 并且具有确定的类型（`RelDataType`）。不同于 {@link org.apache.calcite.sql.SqlNode}，
+ * 后者在 SQL 解析阶段就已生成，因此可能尚未进行类型推导。</p>
  *
- * <p>Some common row-expressions are: {@link RexLiteral} (constant value),
- * {@link RexVariable} (variable), {@link RexCall} (call to operator with
- * operands). Expressions are generally created using a {@link RexBuilder}
- * factory.
+ * <p>一些常见的 `RexNode` 子类包括：
+ * <ul>
+ *   <li>{@link RexLiteral} - 常量值，例如 `TRUE`、`123`、`'abc'`</li>
+ *   <li>{@link RexVariable} - 变量，例如字段引用</li>
+ *   <li>{@link RexCall} - 操作符调用，例如 `a + b`、`MAX(x)`</li>
+ * </ul>
+ * </p>
  *
- * <p>All sub-classes of RexNode are immutable.
+ * <p>通常，`RexNode` 及其子类实例由 {@link RexBuilder} 工厂类创建。</p>
+ *
+ * <p>所有 `RexNode` 子类都是不可变的（Immutable）。</p>
  */
 public abstract class RexNode {
 
-  //~ Instance fields --------------------------------------------------------
+  //~ 实例字段 --------------------------------------------------------
 
-  // Effectively final. Set in each sub-class constructor, and never re-set.
+  /**
+   * 该 `RexNode` 的唯一字符串表示（digest）。
+   * 该字段在子类构造函数中设置后，不会被修改。
+   */
   protected @MonotonicNonNull String digest;
 
-  //~ Methods ----------------------------------------------------------------
+  //~ 方法 --------------------------------------------------------
 
+  /**
+   * 获取该表达式的类型（`RelDataType`）。
+   *
+   * @return 该 `RexNode` 的类型
+   */
   public abstract RelDataType getType();
 
   /**
-   * Returns whether this expression always returns true. (Such as if this
-   * expression is equal to the literal <code>TRUE</code>.)
+   * 判断该表达式是否恒等于 `TRUE`。
+   *
+   * <p>例如，若该表达式是 `TRUE`，则返回 `true`；否则返回 `false`。</p>
+   *
+   * @return 若该表达式总是返回 `true`，则返回 `true`，否则返回 `false`
    */
   public boolean isAlwaysTrue() {
     return false;
   }
 
   /**
-   * Returns whether this expression always returns false. (Such as if this
-   * expression is equal to the literal <code>FALSE</code>.)
+   * 判断该表达式是否恒等于 `FALSE`。
+   *
+   * <p>例如，若该表达式是 `FALSE`，则返回 `true`；否则返回 `false`。</p>
+   *
+   * @return 若该表达式总是返回 `false`，则返回 `true`，否则返回 `false`
    */
   public boolean isAlwaysFalse() {
     return false;
   }
 
+  /**
+   * 判断当前节点是否属于指定的 `SqlKind` 类型。
+   *
+   * @param kind SQL 语法类型
+   * @return 若当前节点的类型等于 `kind`，则返回 `true`，否则返回 `false`
+   */
   public boolean isA(SqlKind kind) {
     return getKind() == kind;
   }
 
+  /**
+   * 判断当前节点是否属于指定的 `SqlKind` 类型集合中的某一种。
+   *
+   * @param kinds SQL 语法类型集合
+   * @return 若当前节点的类型属于 `kinds`，则返回 `true`，否则返回 `false`
+   */
   public boolean isA(Collection<SqlKind> kinds) {
     return getKind().belongsTo(kinds);
   }
 
   /**
-   * Returns the kind of node this is.
+   * 返回该表达式的类型（`SqlKind`）。
    *
-   * @return Node kind, never null
+   * @return SQL 语法类型 {@link SqlKind}，不会返回 `null`
    */
   public SqlKind getKind() {
     return SqlKind.OTHER;
   }
 
+  /**
+   * 返回该 `RexNode` 的字符串表示。
+   *
+   * @return 该 `RexNode` 的 `digest` 值（不会为 `null`）
+   */
   @Override public String toString() {
     return requireNonNull(digest, "digest");
   }
 
-  /** Returns the number of nodes in this expression.
+  /**
+   * 计算当前表达式的节点数量（复杂度）。
    *
-   * <p>Leaf nodes, such as {@link RexInputRef} or {@link RexLiteral}, have
-   * a count of 1. Calls have a count of 1 plus the sum of their operands.
+   * <p>叶子节点（例如 {@link RexInputRef} 或 {@link RexLiteral}）的计数为 1。
+   * 对于 `RexCall`（操作符调用），其计数为 `1 + 所有操作数的计数总和`。</p>
    *
-   * <p>Node count is a measure of expression complexity that is used by some
-   * planner rules to prevent deeply nested expressions.
+   * <p>此计数用于优化器，以防止生成过于复杂的深度嵌套表达式。</p>
+   *
+   * @return 该表达式的节点数量
    */
   public int nodeCount() {
     return 1;
   }
 
   /**
-   * Accepts a visitor, dispatching to the right overloaded
-   * {@link RexVisitor#visitInputRef visitXxx} method.
+   * 接受 `RexVisitor` 访问者，并调用相应的 `visitXxx` 方法进行处理。
    *
-   * <p>Also see {@link RexUtil#apply(RexVisitor, java.util.List, RexNode)},
-   * which applies a visitor to several expressions simultaneously.
+   * <p>也可参见 {@link RexUtil#apply(RexVisitor, java.util.List, RexNode)}
+   * 方法，该方法可同时对多个表达式进行访问。</p>
+   *
+   * @param visitor 访问者
+   * @param <R> 访问者返回值类型
+   * @return 访问结果
    */
   public abstract <R> R accept(RexVisitor<R> visitor);
 
   /**
-   * Accepts a visitor with a payload, dispatching to the right overloaded
-   * {@link RexBiVisitor#visitInputRef(RexInputRef, Object)} visitXxx} method.
+   * 接受 `RexBiVisitor` 访问者（带额外参数），并调用相应的 `visitXxx` 方法。
+   *
+   * @param visitor 访问者
+   * @param arg 额外参数
+   * @param <R> 访问者返回值类型
+   * @param <P> 额外参数类型
+   * @return 访问结果
    */
   public abstract <R, P> R accept(RexBiVisitor<R, P> visitor, P arg);
 
-  /** {@inheritDoc}
+  /**
+   * 判断当前 `RexNode` 是否与另一个对象相等。
    *
-   * <p>Every node must implement {@link #equals} based on its content
+   * <p>子类必须基于 `RexNode` 的内容实现该方法。</p>
+   *
+   * @param obj 另一个对象
+   * @return 若 `obj` 与当前 `RexNode` 结构相同，则返回 `true`，否则返回 `false`
    */
   @Override public abstract boolean equals(@Nullable Object obj);
 
-  /** {@inheritDoc}
+  /**
+   * 计算当前 `RexNode` 的哈希值。
    *
-   * <p>Every node must implement {@link #hashCode} consistent with
-   * {@link #equals}
+   * <p>子类必须确保 `hashCode` 与 `equals` 方法一致。</p>
+   *
+   * @return 该 `RexNode` 的哈希值
    */
   @Override public abstract int hashCode();
 }
+

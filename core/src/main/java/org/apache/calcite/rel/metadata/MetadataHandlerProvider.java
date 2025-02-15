@@ -20,41 +20,57 @@ import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.util.ControlFlowException;
 
 /**
- * Provides {@link MetadataHandler} call sites for
- * {@link RelMetadataQuery}. The handlers provided are responsible for
- * updating the cache stored in {@link RelMetadataQuery}.
+ * 提供 {@link MetadataHandler} 的调用入口，用于 {@link RelMetadataQuery} 查询元数据。
+ *
+ * <p>该接口用于管理和提供特定类型的元数据处理器（Handler），
+ * 这些处理器负责在 {@link RelMetadataQuery} 进行查询时更新缓存，
+ * 以提高查询优化器的性能和效率。</p>
  */
 public interface MetadataHandlerProvider {
 
   /**
-   * Provide a handler for the requested metadata class.
+   * 提供指定元数据类型的处理器（Handler）。
    *
-   * @param handlerClass The handler interface expected
-   * @param <MH> The metadata type the handler relates to.
-   * @return The handler implementation.
+   * <p>在查询关系表达式（RelNode）的元数据信息时，优化器需要依赖不同类型的元数据处理器来计算
+   * 诸如行数、选择性、唯一性、成本估算等信息。本方法用于根据指定的处理器类型提供一个具体的处理器实例。</p>
+   *
+   * @param handlerClass 需要获取的处理器类
+   * @param <MH> 处理器对应的元数据类型
+   * @return 指定类型的处理器实例
    */
   <MH extends MetadataHandler<?>> MH handler(Class<MH> handlerClass);
 
-  /** Re-generates the handler for a given kind of metadata.  */
   /**
-   * Revise the handler for a given kind of metadata.
+   * 重新生成并返回某种元数据类型的处理器（Handler）。
    *
-   * <p>Should be invoked if the existing handler throws a {@link NoHandler} exception.
+   * <p>该方法通常在已有的处理器抛出 {@link NoHandler} 异常时调用，
+   * 以重新生成适用于该元数据类型的新处理器。通常用于动态扩展或在运行时修复缺失的元数据处理器。</p>
    *
-   * @param handlerClass The type of class to revise.
-   * @param <MH> The type metadata the handler provides.
-   * @return A new handler that should be used instead of any previous handler provided.
+   * <p>默认实现不支持处理器的重新生成，如需支持需要在具体实现类中覆盖该方法。</p>
+   *
+   * @param handlerClass 需要重新生成的处理器类
+   * @param <MH> 处理器对应的元数据类型
+   * @return 新的处理器实例，以替换之前的处理器
+   * @throws UnsupportedOperationException 如果当前提供者不支持处理器重新生成
    */
   default <MH extends MetadataHandler<?>> MH revise(Class<MH> handlerClass) {
-    throw new UnsupportedOperationException("This provider doesn't support handler revision.");
+    throw new UnsupportedOperationException("该提供者不支持处理器重新生成。");
   }
 
-  /** Exception that indicates there there should be a handler for
-   * this class but there is not. The action is probably to
-   * re-generate the handler class. */
+  /**
+   * 当查询某个元数据类型时，如果没有可用的处理器，则抛出该异常。
+   *
+   * <p>通常，这意味着需要重新生成对应的元数据处理器。</p>
+   */
   class NoHandler extends ControlFlowException {
+    /** 发生异常的关系表达式（RelNode）的类 */
     public final Class<? extends RelNode> relClass;
 
+    /**
+     * 构造函数，记录无法找到处理器的关系表达式类型。
+     *
+     * @param relClass 发生异常的关系表达式类型
+     */
     public NoHandler(Class<? extends RelNode> relClass) {
       this.relClass = relClass;
     }

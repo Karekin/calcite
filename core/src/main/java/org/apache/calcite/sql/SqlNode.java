@@ -40,44 +40,56 @@ import java.util.stream.Collector;
 import static java.util.Objects.requireNonNull;
 
 /**
- * A <code>SqlNode</code> is a SQL parse tree.
+ * <code>SqlNode</code> 代表 SQL 解析树（SQL parse tree）的一个节点。
  *
- * <p>It may be a
- * {@link SqlCall call}, {@link SqlLiteral literal},
- * {@link SqlIdentifier identifier}, and so forth.
+ * <p>它可以是以下类型的 SQL 结构：
+ * <ul>
+ *     <li>{@link SqlCall} - SQL 调用，例如函数调用、操作符表达式等</li>
+ *     <li>{@link SqlLiteral} - SQL 字面量，例如字符串、数字、布尔值等</li>
+ *     <li>{@link SqlIdentifier} - SQL 标识符，例如表名、列名等</li>
+ * </ul>
  */
 public abstract class SqlNode implements Cloneable {
-  //~ Static fields/initializers ---------------------------------------------
-
-  public static final @Nullable SqlNode[] EMPTY_ARRAY = new SqlNode[0];
-
-  //~ Instance fields --------------------------------------------------------
-
-  protected final SqlParserPos pos;
-
-  //~ Constructors -----------------------------------------------------------
+  //~ 静态字段和初始化器 ---------------------------------------------
 
   /**
-   * Creates a node.
+   * 代表空的 `SqlNode` 数组，用于避免创建不必要的对象。
+   */
+  public static final @Nullable SqlNode[] EMPTY_ARRAY = new SqlNode[0];
+
+  //~ 实例字段 --------------------------------------------------------
+
+  /**
+   * 该节点在 SQL 解析树中的位置，不能为空。
+   */
+  protected final SqlParserPos pos;
+
+  //~ 构造方法 -----------------------------------------------------------
+
+  /**
+   * 创建一个 `SqlNode` 实例。
    *
-   * @param pos Parser position, must not be null.
+   * @param pos 解析器位置（SQL 语句中的位置信息），不能为空。
    */
   SqlNode(SqlParserPos pos) {
     this.pos = requireNonNull(pos, "pos");
   }
 
-  //~ Methods ----------------------------------------------------------------
+  //~ 方法 ----------------------------------------------------------------
 
-  // CHECKSTYLE: IGNORE 1
-  /** @deprecated Please use {@link #clone(SqlNode)}; this method brings
-   * along too much baggage from early versions of Java */
+  /** @deprecated 请使用 {@link #clone(SqlNode)}，此方法继承自 Java 早期版本，可能会带来不必要的负担。 */
   @Deprecated
   @SuppressWarnings({"MethodDoesntCallSuperMethod", "AmbiguousMethodReference"})
   @Override public Object clone() {
     return clone(getParserPosition());
   }
 
-  /** Creates a copy of a SqlNode. */
+  /**
+   * 克隆一个 `SqlNode` 节点。
+   *
+   * @param e 需要克隆的 `SqlNode`
+   * @return 克隆后的 `SqlNode` 副本
+   */
   @SuppressWarnings("AmbiguousMethodReference")
   public static <E extends SqlNode> E clone(E e) {
     //noinspection unchecked
@@ -85,71 +97,41 @@ public abstract class SqlNode implements Cloneable {
   }
 
   /**
-   * Clones a SqlNode with a different position.
+   * 克隆当前 `SqlNode`，并使用指定的 `SqlParserPos` 作为新的位置信息。
+   *
+   * @param pos 解析器位置信息
+   * @return 克隆后的 `SqlNode`
    */
   public abstract SqlNode clone(SqlParserPos pos);
 
   /**
-   * Returns the type of node this is, or
-   * {@link org.apache.calcite.sql.SqlKind#OTHER} if it's nothing special.
+   * 返回该节点的类型，若无特殊类型，则返回 {@link org.apache.calcite.sql.SqlKind#OTHER}。
    *
-   * @return a {@link SqlKind} value, never null
-   * @see #isA
+   * @return SQL 语法类型 {@link SqlKind}，不会返回 `null`
    */
   public SqlKind getKind() {
     return SqlKind.OTHER;
   }
 
   /**
-   * Returns whether this node is a member of an aggregate category.
+   * 判断当前节点是否属于某个 SQL 语法类别。
    *
-   * <p>For example, {@code node.isA(SqlKind.QUERY)} returns {@code true}
-   * if the node is a SELECT, INSERT, UPDATE etc.
+   * <p>例如，`node.isA(SqlKind.QUERY)` 如果 `node` 是 `SELECT`、`INSERT`、`UPDATE` 等查询类型，则返回 `true`。</p>
    *
-   * <p>This method is shorthand: {@code node.isA(category)} is always
-   * equivalent to {@code node.getKind().belongsTo(category)}.
+   * <p>此方法等价于 `node.getKind().belongsTo(category)`。</p>
    *
-   * @param category Category
-   * @return Whether this node belongs to the given category.
+   * @param category SQL 语法类别集合
+   * @return 如果该节点属于指定类别，则返回 `true`，否则返回 `false`
    */
   public final boolean isA(Set<SqlKind> category) {
     return getKind().belongsTo(category);
   }
 
-  @Deprecated // to be removed before 2.0
-  public static SqlNode[] cloneArray(SqlNode[] nodes) {
-    SqlNode[] clones = nodes.clone();
-    for (int i = 0; i < clones.length; i++) {
-      SqlNode node = clones[i];
-      if (node != null) {
-        clones[i] = SqlNode.clone(node);
-      }
-    }
-    return clones;
-  }
-
-  @Override public String toString() {
-    return toSqlString(c -> c.withDialect(AnsiSqlDialect.DEFAULT)
-        .withAlwaysUseParentheses(false)
-        .withSelectListItemsOnSeparateLines(false)
-        .withUpdateSetListNewline(false)
-        .withIndentation(0)).getSql();
-  }
-
   /**
-   * Returns the SQL text of the tree of which this <code>SqlNode</code> is
-   * the root.
+   * 生成当前 `SqlNode` 的 SQL 表达式字符串。
    *
-   * <p>Typical return values are:
-   *
-   * <ul>
-   * <li>'It''s a bird!'
-   * <li>NULL
-   * <li>12.3
-   * <li>DATE '1969-04-29'
-   * </ul>
-   *
-   * @param transform   Transform that sets desired writer configuration
+   * @param transform 用于配置 SQL 输出格式的转换器
+   * @return 该 `SqlNode` 对应的 SQL 语句字符串
    */
   public SqlString toSqlString(UnaryOperator<SqlWriterConfig> transform) {
     final SqlWriterConfig config = transform.apply(SqlPrettyWriter.config());
@@ -159,21 +141,11 @@ public abstract class SqlNode implements Cloneable {
   }
 
   /**
-   * Returns the SQL text of the tree of which this <code>SqlNode</code> is
-   * the root.
+   * 生成当前 `SqlNode` 的 SQL 表达式字符串，并支持指定 SQL 方言（Dialect）。
    *
-   * <p>Typical return values are:
-   *
-   * <ul>
-   * <li>'It''s a bird!'
-   * <li>NULL
-   * <li>12.3
-   * <li>DATE '1969-04-29'
-   * </ul>
-   *
-   * @param dialect     Dialect (null for ANSI SQL)
-   * @param forceParens Whether to wrap all expressions in parentheses;
-   *                    useful for parse test, but false by default
+   * @param dialect SQL 方言，若为 `null`，则使用 ANSI SQL
+   * @param forceParens 是否强制使用括号
+   * @return 该 `SqlNode` 对应的 SQL 语句字符串
    */
   public SqlString toSqlString(@Nullable SqlDialect dialect, boolean forceParens) {
     return toSqlString(c ->
@@ -184,136 +156,62 @@ public abstract class SqlNode implements Cloneable {
             .withIndentation(0));
   }
 
-  public SqlString toSqlString(@Nullable SqlDialect dialect) {
-    return toSqlString(dialect, false);
-  }
-
   /**
-   * Writes a SQL representation of this node to a writer.
+   * 以特定格式将当前 `SqlNode` 转换为 SQL 语句字符串，并写入 `SqlWriter`。
    *
-   * <p>The <code>leftPrec</code> and <code>rightPrec</code> parameters give
-   * us enough context to decide whether we need to enclose the expression in
-   * parentheses. For example, we need parentheses around "2 + 3" if preceded
-   * by "5 *". This is because the precedence of the "*" operator is greater
-   * than the precedence of the "+" operator.
-   *
-   * <p>The algorithm handles left- and right-associative operators by giving
-   * them slightly different left- and right-precedence.
-   *
-   * <p>If {@link SqlWriter#isAlwaysUseParentheses()} is true, we use
-   * parentheses even when they are not required by the precedence rules.
-   *
-   * <p>For the details of this algorithm, see {@link SqlCall#unparse}.
-   *
-   * @param writer    Target writer
-   * @param leftPrec  The precedence of the {@link SqlNode} immediately
-   *                  preceding this node in a depth-first scan of the parse
-   *                  tree
-   * @param rightPrec The precedence of the {@link SqlNode} immediately
+   * @param writer    SQL 输出目标
+   * @param leftPrec  当前 `SqlNode` 左侧的优先级
+   * @param rightPrec 当前 `SqlNode` 右侧的优先级
    */
   public abstract void unparse(
       SqlWriter writer,
       int leftPrec,
       int rightPrec);
 
-  public void unparseWithParentheses(SqlWriter writer, int leftPrec,
-      int rightPrec, boolean parentheses) {
-    if (parentheses) {
-      final SqlWriter.Frame frame = writer.startList("(", ")");
-      unparse(writer, 0, 0);
-      writer.endList(frame);
-    } else {
-      unparse(writer, leftPrec, rightPrec);
-    }
-  }
-
+  /**
+   * 获取当前 `SqlNode` 在 SQL 解析树中的位置信息。
+   *
+   * @return SQL 解析位置
+   */
   public SqlParserPos getParserPosition() {
     return pos;
   }
 
   /**
-   * Validates this node.
+   * 校验该 `SqlNode` 是否符合 SQL 语法规则。
    *
-   * <p>The typical implementation of this method will make a callback to the
-   * validator appropriate to the node type and context. The validator has
-   * methods such as {@link SqlValidator#validateLiteral} for these purposes.
-   *
-   * @param scope Validator
+   * @param validator SQL 语法校验器
+   * @param scope SQL 作用域
    */
   public abstract void validate(
       SqlValidator validator,
       SqlValidatorScope scope);
 
   /**
-   * Lists all the valid alternatives for this node if the parse position of
-   * the node matches that of pos. Only implemented now for SqlCall and
-   * SqlOperator.
+   * 访问者模式（Visitor Pattern），用于遍历 `SqlNode` 结构并执行相关操作。
    *
-   * @param validator Validator
-   * @param scope     Validation scope
-   * @param pos       SqlParserPos indicating the cursor position at which
-   *                  completion hints are requested for
-   * @param hintList  list of valid options
-   */
-  public void findValidOptions(
-      SqlValidator validator,
-      SqlValidatorScope scope,
-      SqlParserPos pos,
-      Collection<SqlMoniker> hintList) {
-    // no valid options
-  }
-
-  /**
-   * Validates this node in an expression context.
-   *
-   * <p>Usually, this method does much the same as {@link #validate}, but a
-   * {@link SqlIdentifier} can occur in expression and non-expression
-   * contexts.
-   */
-  public void validateExpr(
-      SqlValidator validator,
-      SqlValidatorScope scope) {
-    validate(validator, scope);
-    Util.discard(validator.deriveType(scope, this));
-  }
-
-  /**
-   * Accepts a generic visitor.
-   *
-   * <p>Implementations of this method in subtypes simply call the appropriate
-   * <code>visit</code> method on the
-   * {@link org.apache.calcite.sql.util.SqlVisitor visitor object}.
-   *
-   * <p>The type parameter <code>R</code> must be consistent with the type
-   * parameter of the visitor.
+   * @param visitor SQL 访问者
+   * @param <R> 访问者返回值类型
+   * @return 访问结果
    */
   public abstract <R> R accept(SqlVisitor<R> visitor);
 
   /**
-   * Returns whether this node is structurally equivalent to another node.
-   * Some examples:
+   * 判断两个 `SqlNode` 结构是否相等（深度比较）。
    *
-   * <ul>
-   * <li>1 + 2 is structurally equivalent to 1 + 2</li>
-   * <li>1 + 2 + 3 is structurally equivalent to (1 + 2) + 3, but not to 1 +
-   * (2 + 3), because the '+' operator is left-associative</li>
-   * </ul>
+   * @param node 另一个 `SqlNode`
+   * @param litmus 若不相等，指定如何处理
+   * @return 是否相等
    */
   public abstract boolean equalsDeep(@Nullable SqlNode node, Litmus litmus);
 
-  @Deprecated // to be removed before 2.0
-  public final boolean equalsDeep(@Nullable SqlNode node, boolean fail) {
-    return equalsDeep(node, fail ? Litmus.THROW : Litmus.IGNORE);
-  }
-
   /**
-   * Returns whether two nodes are equal (using
-   * {@link #equalsDeep(SqlNode, Litmus)}) or are both null.
+   * 比较两个 `SqlNode` 是否相等，如果两个对象均为 `null`，则认为相等。
    *
-   * @param node1 First expression
-   * @param node2 Second expression
-   * @param litmus What to do if an error is detected (expressions are
-   *              not equal)
+   * @param node1 第一个 `SqlNode`
+   * @param node2 第二个 `SqlNode`
+   * @param litmus 处理不匹配的方式
+   * @return `true` 表示相等，`false` 表示不相等
    */
   public static boolean equalDeep(
       @Nullable SqlNode node1,
@@ -329,62 +227,27 @@ public abstract class SqlNode implements Cloneable {
   }
 
   /**
-   * Returns whether expression is always ascending, descending or constant.
-   * This property is useful because it allows to safely aggregate infinite
-   * streams of values.
+   * 返回该 SQL 表达式的单调性（是否递增、递减或常数）。
    *
-   * <p>The default implementation returns
-   * {@link SqlMonotonicity#NOT_MONOTONIC}.
-   *
-   * @param scope Scope
+   * @param scope SQL 作用域
+   * @return SQL 表达式的单调性
    */
   public SqlMonotonicity getMonotonicity(SqlValidatorScope scope) {
     return SqlMonotonicity.NOT_MONOTONIC;
   }
 
-  /** Returns whether two lists of operands are equal, comparing using
-   * {@link SqlNode#equalsDeep(SqlNode, Litmus)}. */
-  public static boolean equalDeep(List<? extends @Nullable SqlNode> operands0,
-      List<? extends @Nullable SqlNode> operands1, Litmus litmus) {
-    if (operands0.size() != operands1.size()) {
-      return litmus.fail(null);
-    }
-    for (int i = 0; i < operands0.size(); i++) {
-      if (!SqlNode.equalDeep(operands0.get(i), operands1.get(i), litmus)) {
-        return litmus.fail(null);
-      }
-    }
-    return litmus.succeed();
-  }
-
   /**
-   * Returns a {@code Collector} that accumulates the input elements into a
-   * {@link SqlNodeList}, with zero position.
+   * 提供一个 `Collector`，用于收集 SQL 节点并返回 `SqlNodeList`。
    *
-   * @param <T> Type of the input elements
-   *
-   * @return a {@code Collector} that collects all the input elements into a
-   * {@link SqlNodeList}, in encounter order
-   */
-  public static <T extends SqlNode> Collector<T, ArrayList<@Nullable SqlNode>, SqlNodeList>
-      toList() {
-    return toList(SqlParserPos.ZERO);
-  }
-
-  /**
-   * Returns a {@code Collector} that accumulates the input elements into a
-   * {@link SqlNodeList}.
-   *
-   * @param <T> Type of the input elements
-   *
-   * @return a {@code Collector} that collects all the input elements into a
-   * {@link SqlNodeList}, in encounter order
+   * @param <T> `SqlNode` 类型
+   * @param pos SQL 解析位置信息
+   * @return `Collector`，可用于 `Stream` API
    */
   public static <T extends @Nullable SqlNode> Collector<T,
       ArrayList<@Nullable SqlNode>, SqlNodeList> toList(SqlParserPos pos) {
-    //noinspection RedundantTypeArguments
     return Collector.<T, ArrayList<@Nullable SqlNode>, SqlNodeList>of(
         ArrayList::new, ArrayList::add, Util::combine,
         (ArrayList<@Nullable SqlNode> list) -> SqlNodeList.of(pos, list));
   }
 }
+
