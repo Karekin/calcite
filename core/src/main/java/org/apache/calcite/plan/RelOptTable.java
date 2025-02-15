@@ -35,133 +35,170 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 import java.util.List;
 
 /**
- * Represents a relational dataset in a {@link RelOptSchema}. It has methods to
- * describe and implement itself.
+ * `RelOptTable` 代表 {@link RelOptSchema} 中的一个关系型数据表。
+ *
+ * <p>该接口提供了描述表结构、统计信息、物理特性的方法，并支持将表转换为 {@link RelNode} 关系表达式，
+ * 供查询优化器进行优化。</p>
  */
 public interface RelOptTable extends Wrapper {
   //~ Methods ----------------------------------------------------------------
 
   /**
-   * Obtains an identifier for this table. The identifier must be unique with
-   * respect to the Connection producing this table.
+   * 获取表的唯一标识符（限定名称）。
    *
-   * @return qualified name
+   * <p>表的限定名称通常由数据库名、模式名、表名组成，以唯一标识该表。</p>
+   *
+   * @return 表的限定名称（`List<String>` 类型），例如 `["database", "schema", "table"]`
    */
   List<String> getQualifiedName();
 
   /**
-   * Returns an estimate of the number of rows in the table.
+   * 获取表的行数估算值。
+   *
+   * <p>查询优化器可以利用此信息进行优化，例如选择更合适的执行计划。</p>
+   *
+   * @return 估算的表行数（`double` 类型）
    */
   double getRowCount();
 
   /**
-   * Describes the type of rows returned by this table.
+   * 获取表返回的行数据类型。
+   *
+   * <p>该方法描述表的列结构，包括列名、数据类型、是否可为空等信息。</p>
+   *
+   * @return 表的行数据类型（`RelDataType`）
    */
   RelDataType getRowType();
 
   /**
-   * Returns the {@link RelOptSchema} this table belongs to.
+   * 获取该表所属的 {@link RelOptSchema}（关系优化模式）。
+   *
+   * @return 该表的 `RelOptSchema`，如果不可用则返回 `null`
    */
   @Nullable RelOptSchema getRelOptSchema();
 
   /**
-   * Converts this table into a {@link RelNode relational expression}.
+   * 将该表转换为 {@link RelNode} 关系表达式。
    *
-   * <p>The {@link org.apache.calcite.plan.RelOptPlanner planner} calls this
-   * method to convert a table into an initial relational expression,
-   * generally something abstract, such as a
-   * {@link org.apache.calcite.rel.logical.LogicalTableScan},
-   * then optimizes this expression by
-   * applying {@link org.apache.calcite.plan.RelOptRule rules} to transform it
-   * into more efficient access methods for this table.
+   * <p>查询优化器会调用此方法，将表转换为初始的逻辑查询树（如 {@link org.apache.calcite.rel.logical.LogicalTableScan}）。
+   * 随后，优化器会应用 {@link org.apache.calcite.plan.RelOptRule} 规则，将其优化为更高效的执行计划。</p>
+   *
+   * @param context 转换上下文，提供必要的信息以进行转换
+   * @return 生成的关系表达式（`RelNode`）
    */
   RelNode toRel(ToRelContext context);
 
   /**
-   * Returns a description of the physical ordering (or orderings) of the rows
-   * returned from this table.
+   * 获取该表返回的物理排序（Collation）描述信息。
    *
-   * @see RelMetadataQuery#collations(RelNode)
+   * <p>Collation 描述表中数据的物理存储顺序，例如按照某些列升序或降序排列。</p>
+   *
+   * @return 物理排序列表（`List<RelCollation>`），如果没有排序信息则返回 `null`
    */
   @Nullable List<RelCollation> getCollationList();
 
   /**
-   * Returns a description of the physical distribution of the rows
-   * in this table.
+   * 获取该表数据的物理分布（Distribution）信息。
    *
-   * @see RelMetadataQuery#distribution(RelNode)
+   * <p>数据分布用于描述表的数据在集群或分区中的存储方式，例如哈希分布、范围分布等。</p>
+   *
+   * @return 物理分布信息（`RelDistribution`），如果未知则返回 `null`
    */
   @Nullable RelDistribution getDistribution();
 
   /**
-   * Returns whether the given columns are a key or a superset of a unique key
-   * of this table.
+   * 判断指定的列集合是否为该表的唯一键或唯一键的超集。
    *
-   * @param columns Ordinals of key columns
-   * @return Whether the given columns are a key or a superset of a key
+   * <p>唯一键是指可以唯一标识表中某一行的列集合。</p>
+   *
+   * @param columns 需要检查的列索引集合（`ImmutableBitSet`）
+   * @return 若该列集合是唯一键或唯一键的超集，则返回 `true`，否则返回 `false`
    */
   boolean isKey(ImmutableBitSet columns);
 
   /**
-   * Returns a list of unique keys, empty list if no key exist,
-   * the result should be consistent with {@code isKey}.
+   * 获取该表的所有唯一键。
+   *
+   * <p>若表没有唯一键，则返回空列表。</p>
+   *
+   * @return 该表的唯一键列表（`List<ImmutableBitSet>`），如果没有唯一键则返回 `null`
    */
   @Nullable List<ImmutableBitSet> getKeys();
 
   /**
-   * Returns the referential constraints existing for this table. These constraints
-   * are represented over other tables using {@link RelReferentialConstraint} nodes.
+   * 获取该表的所有外键约束（Referential Constraints）。
+   *
+   * <p>外键约束表示该表中的某些列引用了其他表的唯一键。</p>
+   *
+   * @return 该表的外键约束列表（`List<RelReferentialConstraint>`），如果没有外键约束则返回 `null`
    */
   @Nullable List<RelReferentialConstraint> getReferentialConstraints();
 
   /**
-   * Generates code for this table.
+   * 生成该表的代码表达式（通常用于代码生成）。
    *
-   * @param clazz The desired collection class; for example {@code Queryable}.
+   * <p>该方法可用于生成 Java 代码以访问该表，通常在 SQL 转换为程序化查询（如 `Queryable`）时使用。</p>
    *
-   * @return the code for the table, or null if code generation is not supported
+   * @param clazz 目标集合类，例如 `Queryable.class`
+   * @return 代码表达式（`Expression`），如果不支持代码生成则返回 `null`
    */
   @Nullable Expression getExpression(Class clazz);
 
-  /** Returns a table with the given extra fields.
+  /**
+   * 返回一个扩展了额外字段（Extended Fields）的新表。
    *
-   * <p>The extended table includes the fields of this base table plus the
-   * extended fields that do not have the same name as a field in the base
-   * table.
+   * <p>新表包含原始表的所有字段，并添加 `extendedFields` 中不存在于原始表的字段。</p>
+   *
+   * @param extendedFields 需要扩展的额外字段列表（`List<RelDataTypeField>`）
+   * @return 具有扩展字段的新 `RelOptTable`
    */
   RelOptTable extend(List<RelDataTypeField> extendedFields);
 
-  /** Returns a list describing how each column is populated. The list has the
-   * same number of entries as there are fields, and is immutable. */
+  /**
+   * 获取表中各列的填充策略（Column Strategy）。
+   *
+   * <p>该方法返回一个不可变列表，其大小与表的字段数相同，每个元素表示对应列的填充策略。</p>
+   *
+   * @return 列填充策略列表（`List<ColumnStrategy>`）
+   */
   List<ColumnStrategy> getColumnStrategies();
 
-  /** Can expand a view into relational expressions. */
+  /**
+   * 视图扩展器接口，用于将视图展开为关系表达式。
+   */
   interface ViewExpander {
     /**
-     * Returns a relational expression that is to be substituted for an access
-     * to a SQL view.
+     * 将 SQL 视图展开为关系表达式。
      *
-     * @param rowType Row type of the view
-     * @param queryString Body of the view
-     * @param schemaPath Path of a schema wherein to find referenced tables
-     * @param viewPath Path of the view, ending with its name; may be null
-     * @return Relational expression
+     * @param rowType 视图的行类型
+     * @param queryString 视图的 SQL 查询体
+     * @param schemaPath 视图所在的模式路径
+     * @param viewPath 视图的路径，包含视图名称，可为空
+     * @return 展开的关系表达式（`RelRoot`）
      */
     RelRoot expandView(RelDataType rowType, String queryString,
         List<String> schemaPath, @Nullable List<String> viewPath);
   }
 
-  /** Contains the context needed to convert a a table into a relational
-   * expression. */
+  /**
+   * `ToRelContext` 提供了将表转换为关系表达式所需的上下文信息。
+   */
   interface ToRelContext extends ViewExpander {
+    /**
+     * 获取优化器集群（RelOptCluster）。
+     *
+     * @return `RelOptCluster` 实例
+     */
     RelOptCluster getCluster();
 
     /**
-     * Returns the table hints of the table to convert,
-     * usually you can use the hints to pass along some dynamic params.
+     * 获取该表的查询提示（Table Hints）。
      *
-     * @return the hints attached to the table, never null
+     * <p>查询提示可用于传递动态参数，影响查询优化决策。</p>
+     *
+     * @return 该表的查询提示（`List<RelHint>`），不会返回 `null`
      */
     List<RelHint> getTableHints();
   }
 }
+

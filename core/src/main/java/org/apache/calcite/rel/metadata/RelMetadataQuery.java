@@ -499,23 +499,23 @@ public class RelMetadataQuery extends RelMetadataQueryBase {
   }
 
   /**
-   * 获取关系表达式的唯一表来源（如果适用）。
+   * Determines the origin of a column.
    *
-   * <p>如果 `RelNode` 直接映射到一个基础表（可能带有筛选和投影），则返回该表。
-   * 否则，返回 `null`。
+   * @see #getColumnOrigins(org.apache.calcite.rel.RelNode, int)
    *
-   * @param rel 需要查询的关系表达式
-   * @return `RelOptTable` 实例，如果 `RelNode` 不是简单表，则返回 `null`
+   * @param rel the RelNode of the column
+   * @param column the offset of the column whose origin we are trying to
+   * determine
+   *
+   * @return the origin of a column
    */
-  public @Nullable RelOptTable getTableOrigin(RelNode rel) {
-    if (rel.getRowType().getFieldCount() == 0) {
+  public @Nullable RelColumnOrigin getColumnOrigin(RelNode rel, int column) {
+    final Set<RelColumnOrigin> origins = getColumnOrigins(rel, column);
+    if (origins == null || origins.size() != 1) {
       return null;
     }
-    final Set<RelColumnOrigin> colOrigins = getColumnOrigins(rel, 0);
-    if (colOrigins == null || colOrigins.isEmpty()) {
-      return null;
-    }
-    return colOrigins.iterator().next().getOriginTable();
+    final RelColumnOrigin origin = Iterables.getOnlyElement(origins);
+    return origin;
   }
 
   /**
@@ -553,6 +553,26 @@ public class RelMetadataQuery extends RelMetadataQueryBase {
         tableReferencesHandler = revise(BuiltInMetadata.TableReferences.Handler.class);
       }
     }
+  }
+
+  /**
+   * 获取关系表达式的唯一表来源（如果适用）。
+   *
+   * <p>如果 `RelNode` 直接映射到一个基础表（可能带有筛选和投影），则返回该表。
+   * 否则，返回 `null`。
+   *
+   * @param rel 需要查询的关系表达式
+   * @return `RelOptTable` 实例，如果 `RelNode` 不是简单表，则返回 `null`
+   */
+  public @Nullable RelOptTable getTableOrigin(RelNode rel) {
+    if (rel.getRowType().getFieldCount() == 0) {
+      return null;
+    }
+    final Set<RelColumnOrigin> colOrigins = getColumnOrigins(rel, 0);
+    if (colOrigins == null || colOrigins.isEmpty()) {
+      return null;
+    }
+    return colOrigins.iterator().next().getOriginTable();
   }
 
 

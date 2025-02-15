@@ -25,7 +25,7 @@ import java.util.function.Function;
  * RelOptTestBase is an abstract base for tests which exercise a planner and/or
  * rules via {@link DiffRepository}.
  */
-abstract class RelOptTestBase {
+public abstract class RelOptTestBase {
   //~ Methods ----------------------------------------------------------------
 
   /** Creates a fixture for a test. Derived class must override and set
